@@ -26,6 +26,8 @@ Paper excerpt (source of truth; prefer it over memory):
 - Visual sources are dotted paths into compute's output (values.H, series.p, matrices.A, tables.t, matrices.A.0) or state.<id>.
 - In explorations, "change" refers to controls and presets by their exact label.
 - "why" explains in plain terms; never claim a general mathematical property unless certain.
+- The limitation must be strictly true: prefer an assumption the excerpt states, or a well-known misconception, worded precisely (no sweeping "only"/"always"/"never" claims unless proven).
+- Each test's and exploration's state must actually produce what its name/text says (e.g. a test named "η·a = 1" sets η and a so their product is 1).
 - Do not mention whether an excerpt was available; the system adds that note.
 - compute returns only keys that visuals, tests or explorations use.
 - Inside JSON strings never use a raw double quote; write ' or “ ” instead.

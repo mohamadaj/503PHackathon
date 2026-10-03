@@ -81,8 +81,14 @@ def main():
                 print("   stderr:", proc.stderr.strip()[-300:])
 
     path = os.path.join(ROOT, "runs", "summary.csv")
+    # keep rows of cases not re-run this time (merge by case + run)
+    if os.path.exists(path):
+        with open(path, newline="", encoding="utf-8") as f:
+            done = {(r["case"], str(r["run"])) for r in rows}
+            old = [r for r in csv.DictReader(f) if (r.get("case"), str(r.get("run"))) not in done]
+        rows = sorted(old + rows, key=lambda r: (r["case"], int(r["run"])))
     with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w = csv.DictWriter(f, fieldnames=list(rows[-1].keys()), extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
     ok = [r for r in rows if r["exit"] == 0]
