@@ -2,8 +2,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+venv311/
 .env
 out/
 runs/
-   out_*/
-   _xfer/
+out_*/
+_xfer/

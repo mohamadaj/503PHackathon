@@ -144,9 +144,65 @@ def core_checks(spec):
     return fails
 
 
+def local_repairs(spec):
+    """Zero-token fixes for mechanical mistakes the model often repeats unchanged on revision.
+    Returns a list of what was changed (logged in the trace)."""
+    fixes = []
+    if not isinstance(spec, dict):
+        return fixes
+    # 1. expect.tol must be a positive number -> drop it (the default tolerance applies)
+    for group in ("tests", "explorations"):
+        for i, item in enumerate(spec.get(group) or []):
+            if not isinstance(item, dict):
+                continue
+            for j, e in enumerate(item.get("expect") or []):
+                if isinstance(e, dict) and "tol" in e:
+                    t = e["tol"]
+                    if not isinstance(t, (int, float)) or isinstance(t, bool) or not t > 0:
+                        e.pop("tol")
+                        fixes.append(f"{group}[{i}].expect[{j}]: removed non-positive tol {t!r}")
+    # 2. numeric states outside a slider/number range -> widen the range to include them
+    ctrls = {c.get("id"): c for c in spec.get("controls") or []
+             if isinstance(c, dict) and c.get("type") in ("slider", "number")}
+    states = []
+    for group in ("tests", "explorations", "presets"):
+        for i, item in enumerate(spec.get(group) or []):
+            if isinstance(item, dict) and isinstance(item.get("state"), dict):
+                states.append((f"{group}[{i}]", item["state"]))
+    for where, st in states:
+        for cid, v in st.items():
+            c = ctrls.get(cid)
+            if c is None or not isinstance(v, (int, float)) or isinstance(v, bool):
+                continue
+            lo, hi = c.get("min"), c.get("max")
+            if isinstance(lo, (int, float)) and v < lo:
+                c["min"] = v
+                fixes.append(f"controls[{cid}]: min {lo} -> {v} to include {where}")
+            if isinstance(hi, (int, float)) and v > hi:
+                c["max"] = v
+                fixes.append(f"controls[{cid}]: max {hi} -> {v} to include {where}")
+    return fixes
+
+
 def run_checks(spec, case, tr, label):
     """Shape (spec_schema.py, B) + behaviour (checks.py, C). Falls back to core_checks."""
     warns = []
+    fixes = local_repairs(spec)
+    if fixes:
+        tr.log("check", "local_repairs", "fixed", round=label, fixes=fixes[:10], count=len(fixes))
+    try:  # C's zero-token cleanup: d_k -> d<sub>k</sub>, x^2 -> x<sup>2</sup>, Unicode in plain fields
+        import spec_schema
+        if hasattr(spec_schema, "normalize"):
+            new, fixes = spec_schema.normalize(spec)
+            if isinstance(new, dict):
+                if new is not spec:
+                    spec.clear()
+                    spec.update(new)
+                if fixes:
+                    tr.log("check", "normalize_text", "fixed", round=label, fixes=list(fixes)[:10],
+                           count=len(fixes))
+    except Exception as e:
+        tr.log("check", "normalize_text", "error", error=f"{type(e).__name__}: {e}"[:300])
     try:
         import spec_schema
         fails = list(spec_schema.validate(spec))
@@ -336,6 +392,9 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
         normalize(spec, case, has_excerpt)
         tr.log("revise", "apply_patch", "ok" if changed else "no_change",
                revision=rnd, changed_fields=changed)
+        if not changed:  # the same prompt would get the same answer: stop spending calls
+            tr.log("revise", "stop", "no_progress", revision=rnd)
+            break
         fails = run_checks(spec, case, tr, label=f"revision_{rnd}")
         if len(fails) > len(before_fails):  # the patch made things worse: keep the old spec
             spec, fails = before, before_fails
