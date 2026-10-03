@@ -139,6 +139,9 @@ class LLM:
                    elapsed_s=elapsed, finish_reason=finish, output_chars=len(text))
 
             if not text.strip():
-                continue  # e.g. all tokens spent on reasoning; retry if budget allows
+                if finish == "length":  # the identical request would fail the same way
+                    tr.log(stage, "llm_call", "no_retry", reason="empty reply cut at max_tokens")
+                    return None
+                continue  # empty for another reason: one retry if budget allows
             return LLMResult(text, finish, p_tok, c_tok)
         return None

@@ -24,7 +24,7 @@ REQUIRED_FIELDS = ("source_url", "focus", "audience")
 EXCERPT_KEYS = ("excerpt", "text", "source_text", "content", "paper_excerpt", "context")
 EXCERPT_BUDGET_CHARS = 6000   # ~1.5k tokens; relevant parts only (see compress.py)
 GEN_MAX_TOKENS = 12000
-REV_MAX_TOKENS = 7000   # includes low-effort reasoning tokens
+REV_MAX_TOKENS = 6000
 MAX_REVISIONS = 2
 
 DEBUG_DIR = None  # set to the output dir when AGENT_DEBUG is on (dev only)
@@ -411,9 +411,12 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
                       fields=json.dumps(fields, ensure_ascii=False, indent=1))
         tr.log("revise", "request_patch", "sent", revision=rnd,
                fixing=fails[:20], fields_sent=sorted(fields.keys()))
-        # Revision 1 without thinking (most fixes are simple, and thinking costs ~3.5k tokens).
-        # If that did not fix it, revision 2 thinks a little: harder debugging needs it.
-        effort = None if rnd == 1 else os.environ.get("AGENT_REVISE_REASONING", "low")
+        # Revisions run WITHOUT thinking by default. Baseline (30 runs): low reasoning on revisions
+        # was 81% hidden tokens and often hit the cap with an empty reply. Opt in with
+        # AGENT_REVISE_REASONING=low (then only the 2nd revision thinks).
+        rev_reasoning = os.environ.get("AGENT_REVISE_REASONING", "off").strip().lower()
+        thinking = rev_reasoning not in ("off", "none", "disabled", "")
+        effort = rev_reasoning if (thinking and rnd >= 2) else None
         res = llm.chat([{"role": "user", "content": prompt}], REV_MAX_TOKENS, stage="revise",
                        reasoning=effort)
         if res is None:
@@ -429,7 +432,7 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
         tr.log("revise", "apply_patch", "ok" if changed else "no_change",
                revision=rnd, changed_fields=changed)
         if not changed:
-            if rnd >= 2:  # even with thinking the model repeats itself: stop spending calls
+            if rnd >= 2 or not thinking:  # the same prompt would get the same answer: stop
                 tr.log("revise", "stop", "no_progress", revision=rnd)
                 break
             tr.log("revise", "escalate", "no_progress", revision=rnd,

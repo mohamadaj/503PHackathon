@@ -69,8 +69,26 @@ def loads_lenient(s):
         return json.loads(fixed), None
     except json.JSONDecodeError:
         pass
-    obj = _escape_inner_quotes(fixed)
+    obj = _drop_stray_braces(fixed)
+    if obj is None:
+        obj = _escape_inner_quotes(fixed)
     return (obj, None) if obj is not None else (None, first_err)
+
+
+def _drop_stray_braces(s, max_fixes=4):
+    """A stray '}' closes the top-level object early (json: "Extra data" right after it).
+    Remove that brace and retry. Only accepted if the result parses completely."""
+    for _ in range(max_fixes):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError as e:
+            if "Extra data" not in e.msg:
+                return None
+            b = s.rfind("}", 0, e.pos)
+            if b < 0:
+                return None
+            s = s[:b] + s[b + 1:]
+    return None
 
 
 def _escape_inner_quotes(s, max_fixes=60):
@@ -81,7 +99,7 @@ def _escape_inner_quotes(s, max_fixes=60):
         try:
             return json.loads(s)
         except json.JSONDecodeError as e:
-            if not any(k in e.msg for k in ("delimiter", "Expecting property name", "Extra data")):
+            if not any(k in e.msg for k in ("delimiter", "Expecting property name")):
                 return None
             q = s.rfind('"', 0, e.pos)
             if q <= 0 or s[q - 1] == "\\":
@@ -144,6 +162,9 @@ def extract_spec(text):
     if isinstance(spec.get("spec"), dict) and len(spec) == 1:  # model wrapped it
         spec = spec["spec"]
     _attach_js(spec, js)
+    missing = [k for k in ("compute", "visuals") if not spec.get(k) or spec.get(k) == "SEE_JS_BLOCK"]
+    if missing:  # e.g. a fallback picked up only the first part of a broken object
+        return None, f"json_parse_error: incomplete spec, missing {', '.join(missing)}"
     return spec, None
 
 
