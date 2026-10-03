@@ -247,7 +247,7 @@
       }
     },
     {
-      "label": "Large d_k",
+      "label": "Large dₖ",
       "state": {
         "nq": 1,
         "nk": 3,
