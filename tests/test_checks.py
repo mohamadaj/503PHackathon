@@ -201,8 +201,12 @@ def test_real_values_under_a_warning_are_notes():
 # ---------------------------------------------------------------- notes and lint never block
 
 def test_unused_outputs_are_a_note():
-    r = check_report(golden("entropy"))
-    assert r["stats"]["unused_outputs"] == ["values.raw_sum"], r["stats"]["unused_outputs"]
+    s = golden("entropy")  # add an output nothing reads (independent of what the golden itself returns)
+    s["compute"] = s["compute"].replace("var values = {", "var values = { never_read: 7,")
+    r = check_report(s)
+    unused = r["stats"]["unused_outputs"]
+    assert r["ok"] and "values.never_read" in unused and "values.H" not in unused, unused
+    assert any("values.never_read" in n for n in r["notes"])
     s = golden("conv1d")  # a key read only inside draw() counts as read
     s["compute"] = s["compute"].replace("var values = {", "var values = { extra_k: k,")
     assert "values.extra_k" in check_report(s)["stats"]["unused_outputs"]
@@ -270,14 +274,55 @@ def test_draw_may_use_dom_calls():
 
 # ---------------------------------------------------------------- robustness of run_all itself
 
+def _patched(obj, name, replacement):
+    """Context manager: temporarily replace obj.name and capture stderr (deliberate crashes log there)."""
+    import contextlib
+    import io
+
+    @contextlib.contextmanager
+    def cm():
+        original, err = getattr(obj, name), io.StringIO()
+        setattr(obj, name, replacement)
+        try:
+            with contextlib.redirect_stderr(err):
+                yield err
+        finally:
+            setattr(obj, name, original)
+    return cm()
+
+
+def _boom(*args, **kwargs):
+    raise ZeroDivisionError("deliberate crash injected by the test")
+
+
 def test_run_all_never_raises():
     assert run_all(None) and run_all([]) and run_all("text")
-    original = checks._JSChecks.run
-    checks._JSChecks.run = lambda self: 1 / 0
-    try:
-        assert run_all(golden("entropy")) == []  # internal error -> [] (reason goes to stderr)
-    finally:
-        checks._JSChecks.run = original
+    with _patched(checks._Engine, "__init__", _boom) as err:  # the JS harness cannot even be built
+        assert run_all(golden("entropy")) == []
+        r = check_report(golden("entropy"))
+    assert "during setup" in err.getvalue() and r["stats"]["internal_errors"]
+
+
+def test_one_crashing_check_does_not_skip_the_others():
+    s = golden("entropy")
+    s["compute"] = s["compute"].replace("var w =", "if (state.n === 1) throw new Error('n too small'); var w =")
+    with _patched(checks._JSChecks, "note_unused_outputs", _boom), _patched(checks._JSChecks, "expects", _boom) as err:
+        f = run_all(copy.deepcopy(s))
+        r = check_report(s)
+    expect_failure(f, "threw Error: n too small", "n = 1", field="compute:")  # fuzzing still ran
+    internal = r["stats"]["internal_errors"]
+    assert any(x.startswith("unused outputs:") for x in internal) and any(x.startswith("tests[") for x in internal), internal
+    assert any("internal error" in n for n in r["notes"]) and "deliberate crash" in err.getvalue()
+
+
+def test_no_internal_errors_on_golden_and_coverage_specs():
+    paths = sorted(glob.glob(os.path.join(ROOT, "golden", "*.json")) + glob.glob(os.path.join(ROOT, "tests", "coverage", "*.json")))
+    assert len(paths) >= 7, paths
+    for p in paths:
+        r = check_report(_load(os.path.relpath(p, ROOT)))
+        name = os.path.basename(p)
+        assert r["stats"].get("internal_errors") == [], (name, r["stats"].get("internal_errors"))
+        assert r["failures"] == [], (name, r["failures"])
 
 
 # ---------------------------------------------------------------- verify_quotes
