@@ -411,9 +411,11 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
                       fields=json.dumps(fields, ensure_ascii=False, indent=1))
         tr.log("revise", "request_patch", "sent", revision=rnd,
                fixing=fails[:20], fields_sent=sorted(fields.keys()))
-        # Debugging a failed check benefits from a little thinking; first generation stays fast.
+        # Revision 1 without thinking (most fixes are simple, and thinking costs ~3.5k tokens).
+        # If that did not fix it, revision 2 thinks a little: harder debugging needs it.
+        effort = None if rnd == 1 else os.environ.get("AGENT_REVISE_REASONING", "low")
         res = llm.chat([{"role": "user", "content": prompt}], REV_MAX_TOKENS, stage="revise",
-                       reasoning=os.environ.get("AGENT_REVISE_REASONING", "low"))
+                       reasoning=effort)
         if res is None:
             break
         save_raw(f"revise_{rnd}", res.text)
@@ -426,9 +428,13 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
         normalize(spec, case, has_excerpt)
         tr.log("revise", "apply_patch", "ok" if changed else "no_change",
                revision=rnd, changed_fields=changed)
-        if not changed:  # the same prompt would get the same answer: stop spending calls
-            tr.log("revise", "stop", "no_progress", revision=rnd)
-            break
+        if not changed:
+            if rnd >= 2:  # even with thinking the model repeats itself: stop spending calls
+                tr.log("revise", "stop", "no_progress", revision=rnd)
+                break
+            tr.log("revise", "escalate", "no_progress", revision=rnd,
+                   note="no change without thinking; next revision uses low reasoning")
+            continue
         fails = run_checks(spec, case, tr, label=f"revision_{rnd}")
         if len(fails) > len(before_fails):  # the patch made things worse: keep the old spec
             spec, fails = before, before_fails

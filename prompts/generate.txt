@@ -19,12 +19,12 @@ Paper excerpt (source of truth; prefer it over memory):
 - Toy sizes: vectors up to ~8, matrices up to 4x5. 2-6 controls.
 - ALL text (prose, labels, table cols) may use only <b> <i> <sub> <sup> <code> <br>. Math in Unicode, e.g. H = −Σ p<sub>i</sub> log<sub>2</sub> p<sub>i</sub>. Never _ or ^ for indices, no LaTeX, no Markdown.
 - Define every symbol. Short sentences for the audience.
-- source.supported: only claims the excerpt states, each with a SHORT quote copied VERBATIM from the excerpt. Anything you chose (units, log base, sizes, examples, presets) goes in source.simplifications. Never imply the demo reproduces the paper's results.
+- source.supported: only claims the excerpt states, each with a SHORT quote copied VERBATIM from the excerpt; pick clean readable sentences, not text garbled by PDF extraction. Anything you chose (units, log base, sizes, examples, presets) goes in source.simplifications. Never imply the demo reproduces the paper's results.
 - Exactly 2 explorations: the first kind "guided", the second kind "limitation" (a limitation, assumption or common misconception). Each has a concrete state, what to change, what to observe (with numbers), why, and expect checks.
 - tests: 4-7, covering every check named in the focus plus edge cases (zeros, n = 1, extremes). Each expected value must be independently known (closed form or hand calculation), never a value re-checked against the same formula. Express invariants (e.g. rows sum to 1) as error values in compute and test them with "max"; an invariant must recompute the quantity a different way (e.g. explicit per-row sum vs. matrix product), otherwise drop it.
 - compute(state) is pure ES2017: no DOM, no randomness, no globals. It must never throw and never return NaN/Infinity for any value the controls allow (guard logs of 0, division by 0, empty arrays). If a result is genuinely undefined for the current inputs (e.g. all weights 0), leave that key out of values (never substitute a made-up default such as a uniform distribution) and return a top-level "warning": "short reason" instead.
 - Visual sources are dotted paths into compute's output (values.H, series.p, matrices.A, tables.t, matrices.A.0) or state.<id>.
-- In explorations, "change" refers to controls and presets by their exact label.
+- In explorations, "change" refers to controls and presets by their exact label; vector and matrix values are typed into boxes, not sliders.
 - "why" explains in plain terms; never claim a general mathematical property unless certain.
 - The limitation must be strictly true: prefer an assumption the excerpt states, or a well-known misconception, worded precisely (no sweeping "only"/"always"/"never" claims unless proven).
 - Each test's and exploration's state must actually produce what its name/text says (e.g. a test named "η·a = 1" sets η and a so their product is 1).

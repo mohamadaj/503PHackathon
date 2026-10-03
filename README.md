@@ -118,7 +118,7 @@ The template, runtime and chart code were written for this project, with an AI c
 vanilla JavaScript, and fonts are the system font stack.
 
 ## Example
-`examples/entropy/case.json` → `examples/entropy/out/index.html` + `trace.jsonl` (TODO: commit the final run).
+`examples/entropy/case.json` → `examples/entropy/out/index.html` + `examples/entropy/out/trace.jsonl`, generated from a fresh clone with `deepseek/deepseek-v4.1-flash` (2 calls: the checks caught an undefined-value issue and one revision fixed it; all page self-checks pass).
 Other practice inputs are in `examples/*/case.json`; outputs during assessment are generated afresh.
 
 ## Credits and reuse
