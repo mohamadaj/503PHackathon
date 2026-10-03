@@ -93,7 +93,7 @@ Every visual has `type`, `title`, optional `caption` (rich: what to look at).
 | `heatmap` | `source`, `row_labels?`, `col_labels?`, `row_title?`, `col_title?`, `digits?`, `domain?: [lo, hi]`, `row_sums?` (bool) |
 | `table` | `source` (→ `{cols, rows}`), `digits?` |
 | `vectors2d` | `items: [{kind, source, label?, from?, color?, dashed?, point_labels?}]`, `range?` (half-width, number or path; auto if absent), `x_label?`, `y_label?` – see below |
-| `graph` | `matrix` (path to n×n weights; non-zero → edge i→j) **or** `nodes` + `edges`; `node_labels?`, `node_values?` (path; shades nodes and prints the value), `highlight?` (node index/id or path), `directed?` (default true), `digits?`, `height?` – see below |
+| `graph` | `matrix` (path to n×n weights; non-zero → edge i→j) **or** `nodes` + `edges`; `node_labels?`, `node_values?` (path; shades nodes and prints the value), `highlight?` (node index/id or path), `directed?` (default true), `digits?`, `height?`, `min_weight?` (hide edges with \|weight\| below it; default: for a dense matrix, hide edges below 6% of the largest weight, with a footnote) – see below |
 | `custom` | `height` (px in a 600-wide viewBox), `draw`: JS function expression `function draw(svg, state, out, h) {...}` – see below |
 
 **line / scatter details**
