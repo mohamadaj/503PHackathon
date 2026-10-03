@@ -21,10 +21,11 @@ Paper excerpt (source of truth; prefer it over memory):
 - Define every symbol. Short sentences for the audience.
 - source.supported: only claims the excerpt states, each with a SHORT quote copied VERBATIM from the excerpt. Anything you chose (units, log base, sizes, examples, presets) goes in source.simplifications. Never imply the demo reproduces the paper's results.
 - Exactly 2 explorations: the first kind "guided", the second kind "limitation" (a limitation, assumption or common misconception). Each has a concrete state, what to change, what to observe (with numbers), why, and expect checks.
-- tests: 4-7, covering every check named in the focus plus edge cases (zeros, n = 1, extremes). Each expected value must be independently known (closed form or hand calculation), never a value re-checked against the same formula. Express invariants (e.g. rows sum to 1) as error values in compute and test them with "max".
+- tests: 4-7, covering every check named in the focus plus edge cases (zeros, n = 1, extremes). Each expected value must be independently known (closed form or hand calculation), never a value re-checked against the same formula. Express invariants (e.g. rows sum to 1) as error values in compute and test them with "max"; an invariant must recompute the quantity a different way (e.g. explicit per-row sum vs. matrix product), otherwise drop it.
 - compute(state) is pure ES2017: no DOM, no randomness, no globals. It must never throw and never return NaN/Infinity for any value the controls allow (guard logs of 0, division by 0, empty arrays). If a result is genuinely undefined for the current inputs (e.g. all weights 0), leave that key out of values (never substitute a made-up default such as a uniform distribution) and return a top-level "warning": "short reason" instead.
 - Visual sources are dotted paths into compute's output (values.H, series.p, matrices.A, tables.t, matrices.A.0) or state.<id>.
-- In explorations, "change" refers to controls by their exact label and to presets by name.
+- In explorations, "change" refers to controls and presets by their exact label.
+- "why" explains in plain terms; never claim a general mathematical property unless certain.
 - Do not mention whether an excerpt was available; the system adds that note.
 - compute returns only keys that visuals, tests or explorations use.
 - Compact output: write the JSON minified (no indentation, no line breaks inside it). No commentary outside the two blocks.

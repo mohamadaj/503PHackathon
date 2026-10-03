@@ -20,6 +20,22 @@ them then there these they this to under up use used using via was we what when 
 who will with within without would you your learner learners explain explains page should""".split())
 
 
+def _dedupe_sentences(t):
+    """Drop sentences that repeat an earlier one up to numbers (boilerplate, run logs, tables-as-text)."""
+    seen, out = set(), []
+    for para in t.split("\n\n"):
+        kept = []
+        for sent in re.split(r"(?<=[.!?])\s+", para):
+            key = re.sub(r"\d+(?:\.\d+)?", "#", sent.lower()).strip()
+            if len(key) > 40 and key in seen:
+                continue
+            seen.add(key)
+            kept.append(sent)
+        if kept:
+            out.append(" ".join(kept))
+    return "\n\n".join(out)
+
+
 def clean(text):
     t = text.replace("\r\n", "\n").replace("\r", "\n")
     t = re.sub(r"(\w)-\n(\w)", r"\1\2", t)            # hyphenated line breaks
@@ -30,7 +46,7 @@ def clean(text):
     m = re.search(r"\n(references|bibliography)\s*\n", t, re.I)
     if m and m.start() > len(t) * 0.5:
         t = t[:m.start()]
-    return t.strip()
+    return _dedupe_sentences(t.strip())
 
 
 def _chunks(t, win=700):

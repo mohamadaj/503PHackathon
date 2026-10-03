@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = HERE if os.path.isdir(os.path.join(HERE, "golden")) else os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
-from spec_schema import validate, lint, referenced_paths, report  # noqa: E402
+from spec_schema import validate, lint, normalize, referenced_paths, report  # noqa: E402
 
 
 def _load(name):
@@ -186,6 +186,47 @@ def test_line_and_scatter_contract_features():
     assert paths["visuals[2].markers[0].x"] == "values.n"
     assert "visuals[2].markers[1].y" not in paths  # a plain number is not a path
     assert paths["visuals[4].series[0]"] == "series.p"
+
+
+def test_source_url_is_optional():
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    spec["source"].pop("url")  # the agent fills it from case.source_url
+    assert validate(spec) == [], validate(spec)
+    spec["source"]["url"] = 5
+    expect_error(validate(spec), "'url' must be a string")
+
+
+def test_normalize_ascii_math():
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    compute_before = spec["compute"]
+    spec["intro"]["idea"] = "H = -sum_i p_i log_2 p_i, so x^2 and e^(x) and snake_case stay readable"
+    spec["intro"]["steps"] = ["take w_{t+1}", "see <code>p_i</code>"]
+    spec["tests"][0]["name"] = "p_1 = 1 gives 0 bits"          # plain-text field -> Unicode
+    spec["presets"][0]["label"] = "Only W_Q"                    # no Unicode subscript Q -> unchanged
+    spec["visuals"][0]["items"][0]["source"] = "values.H"       # paths are never touched
+    spec["visuals"][1]["x_labels"] = "x_{i}"                    # label template: not prose
+    out, fixes = normalize(spec)
+    assert out is spec
+    assert spec["intro"]["idea"] == ("H = -sum<sub>i</sub> p<sub>i</sub> log<sub>2</sub> p<sub>i</sub>, "
+                                     "so x<sup>2</sup> and e<sup>x</sup> and snake_case stay readable")
+    assert spec["intro"]["steps"] == ["take w<sub>t+1</sub>", "see <code>p_i</code>"]
+    assert spec["tests"][0]["name"] == "p₁ = 1 gives 0 bits"
+    assert spec["presets"][0]["label"] == "Only W_Q"
+    assert spec["visuals"][1]["x_labels"] == "x_{i}" and spec["compute"] == compute_before
+    assert len(fixes) == 3 and fixes[0].startswith("intro.idea:") and "Unicode" in fixes[2]
+    assert validate(spec) == []
+    for name in ("entropy", "conv1d"):  # goldens already use <sub>/<sup>
+        assert normalize(copy.deepcopy(GOLDEN[name]))[1] == []
+    assert normalize(None) == (None, []) and normalize({"intro": 5})[1] == []
+
+
+def test_lint_flags_ascii_math_left():
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    spec["intro"]["why"] = "weights p_(i) matter"
+    spec["presets"][0]["label"] = "Only W_Q"
+    joined = "\n".join(lint(spec))
+    assert 'intro.why: ASCII math "p_(i)"' in joined and 'presets[0].label: ASCII math "W_Q"' in joined
+    assert not any("ASCII" in w for w in lint(GOLDEN["entropy"]))
 
 
 def test_vectors2d_and_graph():

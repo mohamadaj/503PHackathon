@@ -5,6 +5,8 @@ spec_schema.py: structural validator for the page spec (spec contract v1).
                                            Every line starts with the top-level field it is
                                            about ("compute: ...", "visuals[2]: ...", "tests[0].state: ...").
     lint(spec)              -> list[str]   non-blocking quality warnings
+    normalize(spec)         -> (spec, list[str])  free in-place fixes (ASCII math -> <sub>/<sup>),
+                                           one note per changed field; call before validate
     report(spec)            -> dict        {"ok", "errors", "fields", "warnings"} for trace.jsonl
     error_fields(errors)    -> list[str]   top-level fields to send to the revise prompt
     referenced_paths(spec)  -> list[(where, path)]
@@ -569,9 +571,9 @@ def _check_source(c, spec):
     src = c.dct(spec, "source", "source")
     if src is None:
         return
-    for k in ("paper", "url", "section"):
+    for k in ("paper", "section"):
         c.text(src, k, "source")
-    for k in ("authors", "equation", "context_note"):
+    for k in ("url", "authors", "equation", "context_note"):  # url is filled by the agent from case.source_url
         if k in src and not isinstance(src[k], str):
             c.err("source", f"'{k}' must be a string")
     if "year" in src and not isinstance(src["year"], (str, int)):
@@ -666,9 +668,122 @@ def lint(spec, limit=10):
     src = spec.get("source")
     if isinstance(src, dict) and isinstance(src.get("supported"), list) and not src["supported"]:
         warns.append("source.supported is empty; the page will have no statements backed by the excerpt")
+    for where, s, _ in _prose_fields(spec):
+        m = _ASCII_MATH_LEFT.search(_unprotected(s))
+        if m:
+            warns.append(f"{where}: ASCII math {json.dumps(m.group(0))} shows literally; use <sub>/<sup>")
     if len(warns) > limit:
         warns = warns[:limit] + [f"... and {len(warns) - limit} more warning(s)"]
     return warns
+
+
+# ---------------------------------------------------------------- free fixes (no LLM call)
+
+# Keys whose string values are prose shown to the learner. normalize() and the ASCII-math lint only
+# look at these, so compute, draw, ids, paths, label templates, option values, url and quote are safe.
+PROSE_KEYS = {"title", "subtitle", "idea", "why", "steps", "symbol", "meaning", "unit", "label", "help",
+              "caption", "x_label", "y_label", "row_title", "col_title", "change", "observe",
+              "limitations", "name", "section", "equation", "claim", "simplifications", "context_note"}
+
+_LETTER = r"A-Za-zͰ-Ͽ"  # Latin and Greek
+# Spans never rewritten: <code>...</code>, URLs, and HTML tags themselves.
+_PROTECTED = re.compile(r"(<code>.*?</code>|\S+://\S+|<[^>]*>)", re.I | re.S)
+_ASCII_FIXES = [
+    # x_{t+1} -> x<sub>t+1</sub>;  p_i, W_Q, x_max -> p<sub>i</sub> ...  (snake_case is left alone)
+    (re.compile(rf"(?<![\w])([{_LETTER}])_\{{([^{{}}<>]{{1,12}})\}}"), r"\1<sub>\2</sub>"),
+    (re.compile(rf"(?<![\w])([{_LETTER}])_([A-Za-z0-9]{{1,3}})(?![\w])"), r"\1<sub>\2</sub>"),
+    # log_2, max_i, sum_{j} ... (math function names, not arbitrary words)
+    (re.compile(r"(?<![\w])(log|ln|lim|max|min|argmax|argmin|sum|prod)_\{([^{}<>]{1,12})\}"), r"\1<sub>\2</sub>"),
+    (re.compile(r"(?<![\w])(log|ln|lim|max|min|argmax|argmin|sum|prod)_([A-Za-z0-9]{1,3})(?![\w])"), r"\1<sub>\2</sub>"),
+    # x^{-1}, e^(x), x^2, 2^n, 10^-3, K^T -> <sup>
+    (re.compile(rf"([{_LETTER}0-9)\]])\^\{{([^{{}}<>]{{1,12}})\}}"), r"\1<sup>\2</sup>"),
+    (re.compile(rf"([{_LETTER}0-9)\]])\^\(([^()<>]{{1,12}})\)"), r"\1<sup>\2</sup>"),
+    (re.compile(rf"([{_LETTER}0-9)\]])\^([-−+]?(?:\d+(?:\.\d+)?|[A-Za-z][A-Za-z0-9]{{0,2}}))(?![\w])"), r"\1<sup>\2</sup>"),
+]
+_ASCII_MATH_LEFT = re.compile(rf"(?<![\w])[{_LETTER}]_[^\s_]+|[{_LETTER}0-9)\]]\^\S+")
+
+
+def _prose_fields(obj, where=""):
+    """(where, text, setter) for every prose string in the spec."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            w = f"{where}.{k}" if where else k
+            if k in PROSE_KEYS and isinstance(v, str):
+                yield w, v, (lambda new, o=obj, k=k: o.__setitem__(k, new))
+            elif k in PROSE_KEYS and isinstance(v, list) and all(isinstance(s, str) for s in v):
+                for i, s in enumerate(v):
+                    yield f"{w}[{i}]", s, (lambda new, o=v, i=i: o.__setitem__(i, new))
+            elif isinstance(v, (dict, list)):
+                yield from _prose_fields(v, w)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from _prose_fields(v, f"{where}[{i}]")
+
+
+def _unprotected(text):
+    return _PROTECTED.sub(" ", text)
+
+
+# Fields the page shows as plain text (textContent or plain(), which strips tags): there a <sub> tag
+# would show literally or vanish, so these get Unicode sub/superscript characters instead.
+_PLAIN_FIELD = re.compile(r"^tests\[\d+\]\.name$|^presets\[\d+\]\.label$|\.options\[\d+\]\.label$"
+                          r"|^visuals\[\d+\]\.items\[\d+\]\.unit$|^source\.context_note$")
+_UNI = {"sub": dict(zip("0123456789+-−=()aehijklmnoprstuvx", "₀₁₂₃₄₅₆₇₈₉₊₋₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ")),
+        "sup": dict(zip("0123456789+-−=()abcdefghijklmnoprstuvwxyzT", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁻⁼⁽⁾ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻᵀ"))}
+_TAGGED = re.compile(r"<(sub|sup)>(.*?)</\1>")
+
+
+def _to_unicode(tagged):
+    """'d<sub>k</sub>' -> 'dₖ'. None if some character has no Unicode sub/superscript form."""
+    ok = True
+
+    def conv(m):
+        nonlocal ok
+        table = _UNI[m.group(1)]
+        if not all(ch in table for ch in m.group(2)):
+            ok = False
+            return m.group(0)
+        return "".join(table[ch] for ch in m.group(2))
+    out = _TAGGED.sub(conv, tagged)
+    return out if ok else None
+
+
+def _fix_ascii_math(text, plain=False):
+    """Rewrite ASCII sub/superscripts outside protected spans. Returns (new_text, count).
+    plain=True produces Unicode characters (and leaves a match alone if that is impossible)."""
+    parts, total = _PROTECTED.split(text), 0
+    for i in range(0, len(parts), 2):  # even indices are unprotected text
+        for pattern, repl in _ASCII_FIXES:
+            def sub(m, repl=repl):
+                nonlocal total
+                tagged = m.expand(repl)
+                new = _to_unicode(tagged) if plain else tagged
+                if new is None:
+                    return m.group(0)
+                total += 1
+                return new
+            parts[i] = pattern.sub(sub, parts[i])
+    return "".join(parts), total
+
+
+def normalize(spec):
+    """Free deterministic fixes, applied in place before validate/run_all. Returns (spec, fixes).
+    Never raises. Currently: ASCII math in prose (p_i, x^2) -> <sub>/<sup>, or Unicode (pᵢ, x²)
+    in fields the page shows as plain text."""
+    fixes = []
+    if not isinstance(spec, dict):
+        return spec, fixes
+    try:
+        for where, text, set_text in list(_prose_fields(spec)):
+            plain = bool(_PLAIN_FIELD.search(where))
+            new, n = _fix_ascii_math(text, plain=plain)
+            if n:
+                set_text(new)
+                how = "Unicode characters (plain-text field)" if plain else "<sub>/<sup>"
+                fixes.append(f"{where}: rewrote {n} ASCII sub/superscript(s) as {how}")
+    except Exception as e:  # noqa: BLE001  (a cosmetic fix must never break the run)
+        fixes.append(f"normalize stopped early: {type(e).__name__}: {e}")
+    return spec, fixes
 
 
 def error_fields(errors):
