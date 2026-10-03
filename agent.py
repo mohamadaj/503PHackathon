@@ -87,7 +87,7 @@ def build_context(case, tr):
     if not cut:
         cut = ("(None. Use only well-established facts about this paper/concept, cite "
                "section/equation names only if confident, and leave source.supported empty.)")
-    return cut, extra_txt, bool(excerpt)
+    return cut, extra_txt, excerpt
 
 
 # ----------------------------------------------------------------- checks
@@ -157,8 +157,16 @@ def run_checks(spec, case, tr, label):
     tr.log("check", "validate_shape", "pass" if not fails else "fail", round=label,
            errors=fails[:15], warnings=warns[:10])
     try:
-        import checks  # Person C
-        extra = checks.run_all(spec) or []
+        import checks  # Person C: runs compute/tests/explorations/fuzz in QuickJS
+        if not getattr(checks, "ENGINE_OK", True):
+            tr.log("check", "run_js", "skipped", reason="QuickJS not importable")
+        if hasattr(checks, "check_report"):
+            rep = checks.check_report(spec) or {}
+            extra = rep.get("failures") or []
+            tr.log("check", "run_js", "pass" if not extra else "fail", round=label,
+                   failures=extra[:15], notes=(rep.get("notes") or [])[:8], stats=rep.get("stats"))
+        else:
+            extra = checks.run_all(spec) or []
         fails += [f for f in extra if f not in fails]
     except Exception as e:  # a broken checker must not kill the run
         tr.log("check", "checks_module", "error", error=f"{type(e).__name__}: {e}"[:300])
@@ -260,6 +268,12 @@ def write_page(out_dir, page, tr, kind):
     with open(path, "w", encoding="utf-8") as f:
         f.write(page)
     bad = static_html_check(page)
+    try:
+        import checks
+        if hasattr(checks, "check_html"):
+            bad = list(dict.fromkeys(bad + (checks.check_html(page) or [])))
+    except Exception as e:
+        tr.log("check", "check_html", "error", error=f"{type(e).__name__}: {e}"[:300])
     tr.log("check", "static_html", "pass" if not bad else "fail", problems=bad)
     tr.log("render", "write_html", "ok", kind=kind, bytes=len(page.encode("utf-8")))
 
@@ -346,7 +360,8 @@ def run(args, tr):
         print(f"error: bad input: {e}", file=sys.stderr)
         return 2
 
-    excerpt, extra, has_excerpt = build_context(case, tr)
+    excerpt, extra, raw_excerpt = build_context(case, tr)
+    has_excerpt = bool(raw_excerpt)
     if os.environ.get("AGENT_DEBUG"):  # dev only: the exact excerpt text the model saw
         with open(os.path.join(args.output, "excerpt_used.txt"), "w", encoding="utf-8") as f:
             f.write(excerpt)
@@ -361,6 +376,14 @@ def run(args, tr):
     normalize(spec, case, has_excerpt)
     fails = run_checks(spec, case, tr, label="initial")
     spec, fails = revise_loop(llm, spec, fails, case, tr, has_excerpt)
+
+    try:  # keep only quotes that really appear in the FULL original excerpt
+        import checks
+        if hasattr(checks, "verify_quotes"):
+            notes = checks.verify_quotes(spec, raw_excerpt)
+            tr.log("check", "verify_quotes", "ok", notes=(notes or [])[:8])
+    except Exception as e:
+        tr.log("check", "verify_quotes", "error", error=f"{type(e).__name__}: {e}"[:300])
 
     if os.environ.get("AGENT_DEBUG"):  # dev only: keep the final spec for inspection
         with open(os.path.join(args.output, "spec.json"), "w", encoding="utf-8") as f:
