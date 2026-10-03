@@ -849,6 +849,17 @@
         a = ref(a); b = ref(b);
         if (a >= 0 && b >= 0 && a < nodes.length && b < nodes.length) edges.push({ a: a, b: b, w: w == null ? null : Number(w), label: lab });
       });
+      // Hide negligible edges: below min_weight if given; otherwise, for a dense matrix (every
+      // off-diagonal entry non-zero, e.g. PageRank teleport), below 6% of the largest weight.
+      var hidden = 0, cut = null;
+      var maxAbs = Math.max.apply(null, edges.map(function (e) { return isNum(e.w) ? Math.abs(e.w) : 0; }).concat([0]));
+      if (isNum(v.min_weight)) cut = v.min_weight;
+      else if (Array.isArray(M) && nodes.length >= 3 && edges.filter(function (e) { return e.a !== e.b; }).length >= nodes.length * (nodes.length - 1)) cut = 0.06 * maxAbs;
+      if (cut != null && cut > 0) {
+        var kept = edges.filter(function (e) { return !isNum(e.w) || Math.abs(e.w) >= cut; });
+        hidden = edges.length - kept.length;
+        edges = kept;
+      }
       var vals = v.node_values != null ? asArr(resolve(v.node_values, out, st)).map(Number) : null;
       var hiNode = v.highlight != null ? ref(resolve(v.highlight, out, st)) : -1;
       var h = isNum(v.height) ? v.height : 340, n = nodes.length;
@@ -902,6 +913,7 @@
         svText(P[0], P[1] + 4, svgLabel(q.label), { 'text-anchor': 'middle', style: 'font-size:12px;font-weight:600;' + (op > 0.55 ? 'fill:#fff' : '') }, svg);
         if (vals) svText(P[0], P[1] + r + 13, fmt(val, digits), { class: 'vlabel', 'text-anchor': 'middle', style: labelStyle }, svg);
       });
+      if (hidden) svText(W - 6, h - 6, hidden + ' edge' + (hidden > 1 ? 's' : '') + ' with weight < ' + fmt(cut, digits) + ' hidden', { class: 'tick', 'text-anchor': 'end' }, svg);
     },
 
     custom: function (v, body, out, st, drawFn) {
