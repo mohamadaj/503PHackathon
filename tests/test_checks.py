@@ -102,6 +102,17 @@ def test_wrong_shape():
     expect_failure(run_all(s), "visuals[1].source", "2-D array")
 
 
+def test_line_series_source_y_path_is_resolved():
+    for key in ("source_y", "y_source"):
+        s = golden("entropy")
+        s["visuals"][2]["series"].append({"source": "series.ns", key: "series.logn", "label": "it", "style": "points"})
+        assert run_all(copy.deepcopy(s)) == [], (key, run_all(copy.deepcopy(s)))
+        s["visuals"][2]["series"][1][key] = "series.log_n"
+        expect_failure(run_all(copy.deepcopy(s)), f"visuals[2].series[1].{key}: path series.log_n not found")
+        s["visuals"][2]["series"][1][key] = "values.H"
+        expect_failure(run_all(s), f"visuals[2].series[1].{key}: values.H is the number", "needs an array")
+
+
 def test_infinite_loop_on_defaults_stops_fast():
     s = golden("entropy")
     s["compute"] = s["compute"].replace("var w =", "while (true) {} var w =")

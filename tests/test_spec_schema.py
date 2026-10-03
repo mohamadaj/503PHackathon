@@ -267,6 +267,17 @@ def test_lint_flags_ascii_math_left():
     assert not any("ASCII" in w for w in lint(GOLDEN["entropy"]))
 
 
+def test_line_series_source_y():
+    """Runtime form {source: x path, source_y: y path} (alias y_source)."""
+    for key in ("source_y", "y_source"):
+        spec = copy.deepcopy(GOLDEN["entropy"])
+        spec["visuals"][2]["series"].append({"source": "series.ns", key: "series.logn", "label": "it", "style": "points"})
+        assert validate(spec) == [], (key, validate(spec))
+        assert dict(referenced_paths(spec))[f"visuals[2].series[1].{key}"] == "series.logn"
+        spec["visuals"][2]["series"][1][key] = "logn"  # bare word: not a path
+        expect_error(validate(spec), f"visuals[2] (line).series[1].{key}", "not a valid path")
+
+
 def test_vectors2d_and_graph():
     spec = copy.deepcopy(GOLDEN["entropy"])
     spec["visuals"] += [

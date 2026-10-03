@@ -32,6 +32,7 @@ CHART_TYPES = {"bar", "line", "scatter", "heatmap", "vectors2d", "graph", "custo
 VECTOR_KINDS = {"vector", "points", "segment", "line"}
 LINE_STYLES = {"line", "points", "line+points", "stem", "dashed", "step"}
 AXIS_BOUNDS = ("x_min", "x_max", "y_min", "y_max")
+Y_KEYS = ("source_y", "y_source")  # line/scatter series: {source: x path, source_y: y path}
 EXPLORATION_KINDS = {"guided", "limitation"}
 PATH_ROOTS = ("values", "series", "matrices", "tables", "state")
 ALLOWED_TAGS = {"b", "i", "em", "strong", "sub", "sup", "code", "br"}
@@ -455,6 +456,9 @@ def _check_visuals(c, spec, controls):
                 if t != "bar":
                     if "x_source" in s:
                         _check_path(c, f"{wj}.x_source", s["x_source"], controls)
+                    for k in Y_KEYS:  # {source: x path, source_y: y path} form (runtime alias y_source)
+                        if k in s:
+                            _check_path(c, f"{wj}.{k}", s[k], controls)
                     if "style" in s and s["style"] not in LINE_STYLES:
                         c.err(wj, f"'style' must be one of {json.dumps(sorted(LINE_STYLES))}, got {json.dumps(s['style'])}")
             c.text(vis, "x_label", w)
@@ -842,6 +846,8 @@ def referenced_paths(spec):
             if isinstance(s, dict):
                 add(f"{w}.series[{j}]", s.get("source"))
                 add(f"{w}.series[{j}].x_source", s.get("x_source"))
+                for k in Y_KEYS:
+                    add(f"{w}.series[{j}].{k}", s.get(k))
         if vis.get("type") in ("line", "scatter"):
             for k in AXIS_BOUNDS:
                 add(f"{w}.{k}", vis.get(k))

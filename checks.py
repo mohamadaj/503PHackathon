@@ -703,6 +703,8 @@ def _path_kinds(spec):
             for j, _ in enumerate(v.get("series") or []):
                 kinds[f"{w}.series[{j}]"] = "array"
                 kinds[f"{w}.series[{j}].x_source"] = "array"
+                for k in spec_schema.Y_KEYS:
+                    kinds[f"{w}.series[{j}].{k}"] = "array"
             for k in spec_schema.AXIS_BOUNDS:
                 kinds[f"{w}.{k}"] = "number"
             for k, _ in spec_schema._markers(v):
@@ -765,7 +767,8 @@ def _fuzz_values(c):
     return []
 
 
-_VALUE_WHERE = re.compile(r"^visuals\[\d+\]\.(items\[\d+\]|series\[\d+\]|source|matrix|node_values|markers?(\[\d+\])?\.[xy])$")
+_VALUE_WHERE = re.compile(r"^visuals\[\d+\]\.(items\[\d+\]|series\[\d+\](\.(source_y|y_source))?|source|matrix|node_values"
+                          r"|markers?(\[\d+\])?\.[xy])$")
 
 
 def _displayed_value_paths(spec):
