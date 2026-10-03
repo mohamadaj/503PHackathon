@@ -56,44 +56,44 @@ RUNTIME_FUNCS = ("isNum", "fmt", "clamp", "deepCopy", "linScale", "isObj", "asAr
 # ---------------------------------------------------------------- public API
 
 def run_all(spec):
-    """Blocking failures for this spec. Validation errors first (then the JS is skipped)."""
-    try:
-        errors = spec_schema.validate(spec)
-        if errors:
-            return errors
-        if not ENGINE_OK:
-            _log("JS engine not available (pip install quickjs); only structural checks ran")
-            return []
-        # Each check runs in its own guard (see _JSChecks.guard); only a crash while setting up
-        # (validation or building the JS harness) can end up here.
-        return _JSChecks(spec).run()["failures"]
-    except Exception as e:  # noqa: BLE001  (A's request: never raise, never block on our own bugs)
-        _log(f"internal error during setup, no JS checks ran: {type(e).__name__}: {e}")
-        return []
+    """Blocking failures for this spec: validation errors, then JS failures (deduped). Never raises."""
+    return check_report(spec)["failures"]
 
 
 def check_report(spec):
     """Like run_all, for the trace: {"ok", "failures", "notes", "lint", "stats"}.
-    notes (runtime observations) and lint (spec_schema.lint warnings) never block and never
-    appear in run_all(), so they cannot trigger a revision."""
+    Validation errors do not skip the JS: if compute is a non-empty string the guarded JS checks run anyway,
+    so one revision can fix both kinds of problem. notes and lint never block and never appear in run_all()."""
+    errors, js, notes, stats, lint = [], [], [], {"internal_errors": []}, []
+    try:
+        errors = spec_schema.validate(spec, limit=None)
+    except Exception as e:  # noqa: BLE001
+        stats["internal_errors"].append(f"validate: {type(e).__name__}: {e}")
     try:
         lint = spec_schema.lint(spec)
-        errors = spec_schema.validate(spec)
-        if errors:
-            r = {"ok": False, "failures": errors, "notes": ["JS checks skipped: fix validation errors first"],
-                 "stats": {"internal_errors": []}}
-        elif not ENGINE_OK:
-            r = {"ok": True, "failures": [], "notes": ["JS engine not available; only structural checks ran"],
-                 "stats": {"internal_errors": []}}
-        else:
-            r = _JSChecks(spec).run()
-        r["lint"] = lint
-        return r
     except Exception as e:  # noqa: BLE001
-        msg = f"setup: {type(e).__name__}: {e}"
-        _log(f"internal error during setup, no JS checks ran: {msg}")
-        return {"ok": True, "failures": [], "notes": [f"checks.py internal error, no JS checks ran: {msg}"],
-                "lint": [], "stats": {"internal_errors": [msg]}}
+        stats["internal_errors"].append(f"lint: {type(e).__name__}: {e}")
+    code = spec.get("compute") if isinstance(spec, dict) else None
+    if not (isinstance(code, str) and code.strip()):
+        notes.append("JS checks skipped: no compute code")
+    elif not ENGINE_OK:
+        notes.append("JS engine not available (pip install quickjs); only structural checks ran")
+    else:
+        try:
+            r = _JSChecks(spec).run()
+            js, notes, stats = r["failures"], r["notes"], {**r["stats"], "internal_errors":
+                                                             stats["internal_errors"] + r["stats"]["internal_errors"]}
+        except Exception as e:  # noqa: BLE001  (setup crash: the guards inside cannot help)
+            stats["internal_errors"].append(f"setup: {type(e).__name__}: {e}")
+            notes.append(f"checks.py internal error, no JS checks ran: {type(e).__name__}: {e}")
+    for msg in stats["internal_errors"]:
+        _log(f"internal error: {msg}")
+    failures = list(dict.fromkeys(errors + [f for f in js if not f.startswith("... and ")]))
+    if len(failures) > MAX_FAILURES:
+        failures = failures[:MAX_FAILURES] + [f"... and {len(failures) - MAX_FAILURES} more failure(s); fix the ones above first"]
+    if errors:
+        notes.append(f"{len(errors)} validation error(s); JS checks ran anyway")
+    return {"ok": not failures, "failures": failures, "notes": notes, "lint": lint, "stats": stats}
 
 
 def verify_quotes(spec, excerpt):
@@ -177,7 +177,9 @@ _HARNESS = r"""
 "use strict";
 %(runtime)s
 
-var spec = normalize(JSON.parse(%(spec_json)s));
+var __RAW = JSON.parse(%(spec_json)s);
+var __visuals = Array.isArray(__RAW.visuals) ? __RAW.visuals : [];  // raw list: indexes match visuals[i] in messages
+var spec = normalize(__RAW);
 var controls = spec.controls;
 var byId = {};
 controls.forEach(function (c) { if (c && c.id) byId[c.id] = c; });
@@ -298,7 +300,7 @@ function __stub() {
 var document = __stub();
 
 function __draw(i) {
-  var v = spec.visuals[i];
+  var v = __visuals[i];
   if (!(i in __draws)) { try { __draws[i] = compileFn(v.draw, 'draw()'); } catch (e) { __draws[i] = { compileError: __err(e) }; } }
   var f = __draws[i];
   if (f.compileError) return JSON.stringify({ error: 'could not be compiled: ' + f.compileError });
@@ -407,9 +409,12 @@ class _JSChecks:
         self.timeouts = 0
         self.stopped = False
         self.stats = {"states": {}, "expects_passed": 0, "expects_total": 0, "draw_calls": 0}
-        self.customs = [i for i, v in enumerate(spec.get("visuals") or []) if isinstance(v, dict) and v.get("type") == "custom"]
-        self.readout_keys = {it["source"].split(".")[1] for v in spec.get("visuals") or [] if v.get("type") == "readouts"
-                             for it in v.get("items") or [] if str(it.get("source", "")).startswith("values.")}
+        visuals = spec.get("visuals") if isinstance(spec.get("visuals"), list) else []
+        self.customs = [i for i, v in enumerate(visuals) if isinstance(v, dict) and v.get("type") == "custom"]
+        self.readout_keys = {it["source"].split(".")[1] for v in visuals if isinstance(v, dict) and v.get("type") == "readouts"
+                             for it in (v.get("items") if isinstance(v.get("items"), list) else [])
+                             if isinstance(it, dict) and isinstance(it.get("source"), str)
+                             and re.match(r"values\.[^.]+", it["source"])}
         self.warned_notes = set()
         self.shown_paths = _displayed_value_paths(spec)
         self.js = _Engine(spec)
@@ -556,7 +561,10 @@ class _JSChecks:
                 self.guard(f"{group}[{i}]", self.check_item, group, i, item)
         # 3. fuzz one control at a time, and find controls that change nothing
         outputs = {}
-        for c in self.spec.get("controls") or []:
+        controls = self.spec.get("controls") if isinstance(self.spec.get("controls"), list) else []
+        for c in controls:
+            if not (isinstance(c, dict) and isinstance(c.get("id"), str)):
+                continue  # already a validation error
             outputs[c["id"]] = {base["out"]}
             for value in self.guard(f"fuzz values for {c['id']}", _fuzz_values, c) or []:
                 if not self.budget_left():
@@ -594,6 +602,8 @@ class _JSChecks:
                 self.fail(f"{pr['where']}: {pr['path']} is {_short(pr['got'], 80)}, but this needs {_KIND_TEXT[pr['kind']]}")
 
     def check_item(self, group, i, item):
+        if not isinstance(item, dict):
+            return  # already a validation error
         label = f"for the state of {group}[{i}]"
         paths = [e["source"] for e in item.get("expect") or []
                  if isinstance(e, dict) and isinstance(e.get("source"), str) and not e["source"].startswith("state.")]
@@ -630,14 +640,39 @@ class _JSChecks:
     def dead_controls(self, outputs):
         used_directly = _controls_read_outside_compute(self.spec)
         live = [cid for cid, outs in outputs.items() if len(outs) > 1 or cid in used_directly]
+        by_id = {c["id"]: c for c in self.spec.get("controls") or [] if isinstance(c, dict) and isinstance(c.get("id"), str)}
+        # A control can be inert only at the defaults (e.g. LoRA's A while B = 0): retry each candidate with every
+        # other control moved off its default before calling it dead.
+        for cid in [c for c in outputs if c not in live]:
+            if self.guard(f"dead-control retry {cid}", self.matters_with_others, by_id.get(cid), by_id):
+                live.append(cid)
         dead = [cid for cid in outputs if cid not in live]
         self.stats["live_controls"], self.stats["dead_controls"] = live, dead
         if dead:
-            self.notes.append(f"controls that change nothing between their extremes: {', '.join(dead)}")
+            self.notes.append(f"controls that changed nothing in any state tried (alone, and with each other "
+                              f"control moved): {', '.join(dead)}")
         if len(live) < MIN_LIVE_CONTROLS:
             self.fail(f"controls: only {len(live)} control(s) change the computed output ({', '.join(live) or 'none'}); "
                       f"changing these from min to max changes nothing: {', '.join(dead)}. "
                       f"Make compute use every control (read state.<id>) or replace it with one that matters")
+
+    def matters_with_others(self, c, by_id):
+        """Does control c change the output once some other control is moved off its default?"""
+        if not c:
+            return False
+        mine = _fuzz_values(c)
+        for other in by_id.values():
+            if other is c or not self.budget_left():
+                continue
+            for ov in _fuzz_values(other)[:1]:
+                base, err = self.js.call("__compute", json.dumps({other["id"]: ov}))
+                if err or not base or base.get("error"):
+                    continue
+                for v in mine:
+                    r, err = self.js.call("__compute", json.dumps({other["id"]: ov, c["id"]: v}))
+                    if not err and r and not r.get("error") and r["out"] != base["out"]:
+                        return True
+        return False
 
     def report(self):
         self.stats["calls"] = self.js.calls
@@ -690,7 +725,7 @@ def _fuzz_values(c):
     """Values to try for one control (one at a time, others at defaults). Never all-zero vectors."""
     t, d = c.get("type"), c.get("default")
     if t == "slider":
-        return [x for x in (c["min"], c["max"]) if x != d]
+        return [x for x in (c.get("min"), c.get("max")) if _is_num(x) and x != d]
     if t == "number":
         vals = [c[k] for k in ("min", "max") if _is_num(c.get(k)) and c[k] != d]
         step = c.get("step") if _is_num(c.get("step")) and c.get("step") > 0 else 1
@@ -699,16 +734,34 @@ def _fuzz_values(c):
         return [not d]
     if t == "select":
         return [o["value"] for o in c.get("options") or [] if isinstance(o, dict) and o.get("value") != d]
-    if t == "vector" and isinstance(d, list) and d:
+    if t == "vector" and isinstance(d, list) and d and all(_is_num(x) for x in d):
         vals = [[_nudge(c, d[0])] + list(d[1:])]
+        if len(d) > 1:
+            vals.append(list(d[:-1]) + [_nudge(c, d[-1])])
         if _in_range(c, 0):  # degenerate inputs a learner can type: all zeros, a single nonzero entry
             vals.append([0] * len(d))
             one = 1 if _in_range(c, 1) else c.get("max")
             if len(d) > 1 and _is_num(one) and one != 0:
                 vals.append([one] + [0] * (len(d) - 1))
         return vals
-    if t == "matrix" and isinstance(d, list) and d and isinstance(d[0], list) and d[0]:
-        return [[[_nudge(c, d[0][0])] + list(d[0][1:])] + [list(r) for r in d[1:]]]
+    if (t == "matrix" and isinstance(d, list) and d and all(isinstance(r, list) and r for r in d)
+            and all(_is_num(x) for r in d for x in r)):
+        # [0][0], one off-diagonal entry FLIPPED (a nonzero becomes 0, a zero becomes nonzero: adjacency and mask
+        # matrices are often binarized, so +step changes nothing there) and the last entry
+        off = (0, 1) if len(d[0]) > 1 else (1, 0)
+        vals = []
+        for (i, j), how in {(0, 0): "nudge", off: "flip", (len(d) - 1, len(d[-1]) - 1): "nudge"}.items():
+            if i < len(d) and j < len(d[i]):
+                m = [list(r) for r in d]
+                x = m[i][j]
+                m[i][j] = 0 if how == "flip" and x != 0 and _in_range(c, 0) else _nudge(c, x)
+                vals.append(m)
+        if len(d) > 1 and all(len(r) == len(d) for r in d):  # square: flip the symmetric pair (undirected graphs)
+            m = [list(r) for r in d]
+            for i, j in ((0, 1), (1, 0)):
+                m[i][j] = 0 if m[i][j] != 0 and _in_range(c, 0) else _nudge(c, m[i][j])
+            vals.append(m)
+        return vals
     return []
 
 

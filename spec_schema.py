@@ -42,11 +42,14 @@ FUNC_EXPR = re.compile(r"^\s*(function\b|\(?\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)?\s*
 JS_IDENT = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 PATH_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z0-9_$]+)+$")
 
-# Markup that must never appear in model output (prose or code strings).
+# Markup that must never appear in prose. Not applied to compute/draw: render.py escapes code and the runtime
+# only compiles it, and comparisons like `x < Math.abs(y)` or `i < link.length` are normal JavaScript.
+# A tag starts right after "<" (no space), as in the runtime's own tag detection.
 INJECTION = re.compile(
-    r"<\s*/?\s*(script|iframe|object|embed|style|link|meta|base|form|img|svg|math|frame)\b"
-    r"|javascript\s*:|\bon[a-z]+\s*=\s*[\"']|<!--",
+    r"</?(script|iframe|object|embed|style|link|meta|base|form|img|svg|math|frame)\b"
+    r"|<[a-z][^>]*\son[a-z]+\s*=|javascript\s*:|<!--",
     re.I)
+_CODE_KEYS = {"compute", "draw"}
 
 # Patterns that break the "pure, offline" rules. (regex, explanation)
 FORBIDDEN_COMPUTE = [
@@ -193,8 +196,10 @@ def _check_expect(c, where, items, controls):
         present = [k for k in ("equals", "min", "max") if k in e]
         if not present:
             c.err(w, "needs at least one of 'equals', 'min', 'max'")
-        for k in present:
-            if not _is_num(e[k]):
+        if "equals" in e and not (_is_num(e["equals"]) or isinstance(e["equals"], (str, bool))):
+            c.err(w, "'equals' must be a number (compared with tol), or a string/boolean (matched exactly)")
+        for k in ("min", "max"):
+            if k in e and not _is_num(e[k]):
                 c.err(w, f"'{k}' must be a finite number")
         if "tol" in e and not (_is_num(e["tol"]) and e["tol"] > 0):
             c.err(w, "'tol' must be a positive number")
@@ -252,22 +257,23 @@ def _check_state(c, where, state, controls):
 
 # ---------------------------------------------------------------- sections
 
-def _all_strings(obj, where=""):
+def _all_strings(obj, where="", skip=frozenset()):
     if isinstance(obj, dict):
         for k, v in obj.items():
-            yield from _all_strings(v, f"{where}.{k}" if where else k)
+            if k not in skip:
+                yield from _all_strings(v, f"{where}.{k}" if where else k, skip)
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
-            yield from _all_strings(v, f"{where}[{i}]")
+            yield from _all_strings(v, f"{where}[{i}]", skip)
     elif isinstance(obj, str):
         yield where, obj
 
 
 def _check_injection(c, spec):
-    for where, text in _all_strings(spec):
+    for where, text in _all_strings(spec, skip=_CODE_KEYS):
         m = INJECTION.search(text)
         if m:
-            c.err(where, f"contains forbidden markup {json.dumps(m.group(0))}; prose may only use <b> <i> <em> <strong> <sub> <sup> <code> <br>, and code must not emit HTML")
+            c.err(where, f"contains forbidden markup {json.dumps(m.group(0))}; prose may only use <b> <i> <em> <strong> <sub> <sup> <code> <br>")
 
 
 def _check_intro(c, spec):
@@ -515,6 +521,8 @@ def _check_visuals(c, spec, controls):
                 _check_path(c, f"{w}.node_values", vis["node_values"], controls)
             if "directed" in vis and not isinstance(vis["directed"], bool):
                 c.err(w, "'directed' must be true or false")
+            if "min_weight" in vis and not _is_num(vis["min_weight"]):
+                c.err(w, "'min_weight' must be a number (edges with smaller |weight| are hidden)")
         elif t == "custom":
             if not (_is_num(vis.get("height")) and 40 <= vis["height"] <= 1200):
                 c.err(w, "'height' must be a number of pixels between 40 and 1200")
@@ -623,7 +631,8 @@ def validate(spec, limit=MAX_ERRORS):
 
 
 _SKIP_PROSE = {"compute", "draw", "url", "quote"}
-_TAG = re.compile(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9]*)([^>]*)>")
+# Same idea as the runtime's TAG_LIKE: "<" directly followed by a name; "a < b" is not a tag.
+_TAG = re.compile(r"<(/?)([A-Za-z][A-Za-z0-9]*)((?:\s+[^<>]*=[^<>]*)?\s*/?)>")
 _LATEX = re.compile(r"\$[^$\n]+\$|\\(frac|sum|sqrt|cdot|times|alpha|beta|theta|sigma|mu|log|left|right|mathbf|text)\b|\\\(|\\\[")
 _MARKDOWN = re.compile(r"\*\*[^*]+\*\*|`[^`]+`|^\s*#{1,6}\s|\[[^\]]+\]\([^)]+\)", re.M)
 

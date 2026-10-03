@@ -57,6 +57,45 @@ def gen_price(model):
         return None
 
 
+def run_flags(row, folder):
+    """Runs to look at: over 20k tokens, over 120 s, or the agent's budget guard skipped a revision."""
+    f = []
+    if float(row.get("tokens") or 0) > 20000:
+        f.append(">20k tok")
+    if float(row.get("secs") or 0) > 120:
+        f.append(">120 s")
+    trace = folder / "trace.jsonl"
+    if trace.exists():
+        for line in trace.read_text(encoding="utf-8").splitlines():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d.get("action") == "skip" and d.get("result") == "budget":
+                f.append("budget guard")
+                break
+    return ", ".join(f)
+
+
+def print_spread(rows):
+    by_case = defaultdict(list)
+    for r in rows:
+        by_case[r["case"]].append(r)
+    print("\nRun-to-run spread per case (min-max):")
+    for case, rs in sorted(by_case.items()):
+        if len(rs) < 2:
+            continue
+        tot = [r["total"] for r in rs]
+        tok = [float(r["tokens"]) for r in rs if str(r["tokens"]).strip()]
+        sec = [float(r["secs"]) for r in rs if str(r["secs"]).strip()]
+        line = f"  {case:26s} quality {min(tot)}-{max(tot)} (Δ{max(tot) - min(tot)})"
+        if tok:
+            line += f"  tokens {min(tok):.0f}-{max(tok):.0f}"
+        if sec:
+            line += f"  secs {min(sec):.0f}-{max(sec):.0f}"
+        print(line)
+
+
 def read_summary(runs_dir):
     path = runs_dir / "summary.csv"
     if not path.exists():
@@ -115,10 +154,12 @@ def main():
         row.update(tokens=s.get("total_tok", ""), prompt_tok=s.get("prompt_tok", ""), completion_tok=s.get("completion_tok", ""),
                    secs=s.get("secs", ""), calls=s.get("calls", ""), revisions=s.get("revisions", ""),
                    check_failures=s.get("remaining_failures", ""), exit=s.get("exit", ""))
+        row["flags"] = run_flags(row, folder)
         rows.append(row)
 
     cols_a = ["case", "run", *CRITERIA, "total", "top_lost", "grader_usd", "status"]
-    cols_b = ["case", "run", "tokens", "secs", "calls", "revisions", "check_failures", *CRITERIA, "total", "top_lost"]
+    cols_b = ["case", "run", "tokens", "secs", "calls", "revisions", "check_failures", *CRITERIA, "total", "flags",
+              "top_lost"]
     for name, cols in (("assessment.csv", cols_a), ("baseline.csv", cols_b)):
         with open(runs_dir / name, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
@@ -129,7 +170,9 @@ def main():
     for r in rows:
         print(f"{r['case']:26} {r['run']:>3} {str(r['tokens']):>7} {str(r['secs']):>6} {str(r['calls']):>5} {str(r['revisions']):>3} "
               f"{str(r['check_failures']):>5} | " + " ".join(f"{r[k]:>5}" for k in CRITERIA) + f"  {r['total']:>5}"
-              + ("" if r["status"] in ("graded", "cached") else f"  ({r['status']})"))
+              + ("" if r["status"] in ("graded", "cached") else f"  ({r['status']})")
+              + (f"  [{r['flags']}]" if r["flags"] else ""))
+    print_spread(rows)
     n = len(rows)
     print(f"\naverage quality {sum(r['total'] for r in rows) / n:.1f}/85 over {n} runs; "
           f"below 50: {sum(r['total'] < 50 for r in rows)}")

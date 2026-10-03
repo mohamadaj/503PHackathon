@@ -79,7 +79,8 @@ CASES = [
     ("exploration state typo", "entropy", lambda s: s["explorations"][0]["state"].update(probs=[1]), ["'probs' is not a control id"]),
     ("exploration no expect", "entropy", lambda s: s["explorations"][0].update(expect=[]), ["non-empty list"]),
     ("expect without check", "entropy", lambda s: s["tests"][0]["expect"][0].pop("equals"), ["'equals', 'min', 'max'"]),
-    ("expect value not number", "entropy", lambda s: s["tests"][0]["expect"][0].update(equals="0"), ["'equals' must be a finite number"]),
+    ("expect equals a list", "entropy", lambda s: s["tests"][0]["expect"][0].update(equals=[0]), ["'equals' must be a number"]),
+    ("expect min not number", "entropy", lambda s: s["tests"][0]["expect"][0].update(min="0"), ["'min' must be a finite number"]),
     ("one test", "entropy", lambda s: s.update(tests=s["tests"][:1]), ["'tests' needs at least 2"]),
     ("test state out of range", "entropy", lambda s: s["tests"][2]["state"].update(n=16), ["outside the slider range"]),
     ("preset bad value", "conv1d", lambda s: s["presets"][0]["state"].update(mode="wrap"), ["not one of the select options"]),
@@ -89,7 +90,6 @@ CASES = [
     ("no section", "entropy", lambda s: s["source"].pop("section"), ["missing required string 'section'"]),
     ("no simplifications", "entropy", lambda s: s["source"].update(simplifications=[]), ["'simplifications' needs at least 1"]),
     ("script tag in prose", "entropy", lambda s: s["intro"].update(idea="Hi <script>alert(1)</script>"), ["forbidden markup"]),
-    ("script close in compute", "entropy", lambda s: s.update(compute=s["compute"].replace("var n", "var z = '</script>'; var n")), ["forbidden markup"]),
     ("event handler", "attention", lambda s: s["explorations"][0].update(why='<b onclick="x()">click</b>'), ["forbidden markup"]),
     ("javascript url", "entropy", lambda s: s["source"].update(url="javascript:alert(1)"), ["forbidden markup"]),
     ("img tag", "entropy", lambda s: s["limitations"].append('<img src="http://x/y.png">'), ["forbidden markup"]),
@@ -186,6 +186,44 @@ def test_line_and_scatter_contract_features():
     assert paths["visuals[2].markers[0].x"] == "values.n"
     assert "visuals[2].markers[1].y" not in paths  # a plain number is not a path
     assert paths["visuals[4].series[0]"] == "series.p"
+
+
+B_EXPRESSIONS = ["x < Math.abs(y)", "i < link.length", "k < base", "a < object.size"]
+
+
+def test_comparisons_are_not_injection():
+    """B's false positives: '<' followed by a space and a word is a comparison, not a tag."""
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    spec["compute"] = spec["compute"].replace(
+        "var n =", "var y = 1, x = 0, link = [], k = 0, base = 2, a = 0, object = {size: 1};"
+                   " var t = (" + " && ".join(B_EXPRESSIONS) + "); var z = '</script><img src=x>'; var n =")
+    spec["intro"]["why"] = "We use " + ", ".join(B_EXPRESSIONS) + " and p<sub>i</sub> in prose."
+    assert validate(spec) == [], validate(spec)
+    assert not any("tag <" in w for w in lint(spec)), lint(spec)
+
+
+def test_real_markup_in_prose_is_caught():
+    for bad in ["<script>alert(1)</script>", "</script>", "<img src=x>", "<SVG onload=x>", '<b onclick="x()">hi</b>',
+                "javascript:alert(1)", "<!-- hidden -->", "<iframe src=x>"]:
+        spec = copy.deepcopy(GOLDEN["entropy"])
+        spec["limitations"].append(f"Note {bad} here")
+        expect_error(validate(spec), "limitations[", "forbidden markup")
+
+
+def test_expect_equals_string_or_boolean():
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    spec["tests"][0]["expect"] = [{"source": "values.H", "equals": "uniform"},
+                                  {"source": "values.H", "equals": True, "tol": 1e-6},  # tol is ignored for non-numbers
+                                  {"source": "values.H", "min": 0, "max": 3}]
+    assert validate(spec) == [], validate(spec)
+
+
+def test_graph_min_weight():
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    spec["visuals"].append({"type": "graph", "title": "g", "matrix": "matrices.P", "min_weight": 0.05})
+    assert validate(spec) == [], validate(spec)
+    spec["visuals"][-1]["min_weight"] = "small"
+    expect_error(validate(spec), "'min_weight' must be a number")
 
 
 def test_source_url_is_optional():
