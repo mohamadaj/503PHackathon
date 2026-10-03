@@ -55,7 +55,9 @@ Paper excerpt (source of truth; prefer it over memory):
     {"type": "bar", "title": "...", "caption": "what to look at", "series": [{"source": "series.p", "label": "..."}], "x_labels": "series.labels", "x_label": "...", "y_label": "..."},
     {"type": "line", "title": "...", "x_source": "series.xs", "series": [{"source": "series.ys", "label": "..."}], "x_label": "...", "y_label": "...", "marker": {"x": "values.n", "y": "values.H", "label": "you"}},
     {"type": "heatmap", "title": "...", "source": "matrices.A", "row_labels": "q{i}", "col_labels": "k{i}", "digits": 2, "row_sums": true},
-    {"type": "table", "title": "...", "source": "tables.t", "digits": 3}
+    {"type": "table", "title": "...", "source": "tables.t", "digits": 3},
+    {"type": "vectors2d", "title": "...", "items": [{"kind": "vector", "source": "series.v", "label": "v"}, {"kind": "points", "source": "matrices.P"}, {"kind": "line", "source": "series.dir"}], "x_label": "x", "y_label": "y"},
+    {"type": "graph", "title": "...", "matrix": "matrices.T", "node_labels": ["A", "B"], "node_values": "series.pi"}
   ],
   "explorations": [
     {"title": "...", "kind": "guided", "state": {"n": 4, "p": [1, 0, 0, 0]}, "change": "...", "observe": "...", "why": "...", "expect": [{"source": "values.H", "equals": 0, "tol": 1e-6}]},
@@ -84,4 +86,4 @@ function compute(state) {
 }
 ```
 
-Use only the control and visual types shown. Include at least one bar, line or heatmap visual. Only include the control types you need.
+Use only the control and visual types shown, and only the ones you need. Pick the visual that shows the mechanism: bar/line for quantities, heatmap for matrices, vectors2d for 2-D vectors/points/projections/directions, graph for states/nodes/transitions (pass a matrix path). Every visual gets a caption saying what to look at.
