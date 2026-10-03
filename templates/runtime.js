@@ -364,7 +364,7 @@
       var sumSpan = labelRow(c, host, '');
       var grid = el('div', { class: 'vec' }, host);
       var labels = labelsFor(c.item_labels, vec.length, lastOut, state);
-      var showSum = function () { sumSpan.textContent = 'Σ = ' + fmt(state[c.id].reduce(function (a, b) { return a + b; }, 0), 3); };
+      var showSum = function () { if (c.normalize) sumSpan.textContent = 'Σ = ' + fmt(state[c.id].reduce(function (a, b) { return a + b; }, 0), 3); };
       showSum();
       var inputs = vec.map(function (v, i) {
         var cell = el('label', { class: 'cell' }, grid);
