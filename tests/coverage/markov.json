@@ -1,0 +1,28 @@
+{
+  "title": "A three-state Markov chain",
+  "subtitle": "π<sub>k+1</sub> = π<sub>k</sub> P, and where it settles.",
+  "audience": "Engineering undergraduate",
+  "intro": {"idea": "Each row of the transition matrix P gives the probabilities of moving from one state to each state. Multiplying the distribution π by P advances it one step.", "why": "PageRank, queueing and reliability models are all Markov chains.",
+    "symbols": [{"symbol": "P<sub>ij</sub>", "meaning": "probability of moving from state i to state j", "unit": "rows sum to 1"}, {"symbol": "π<sub>k</sub>", "meaning": "distribution after k steps", "unit": "sums to 1"}]},
+  "controls": [
+    {"id": "P", "type": "matrix", "label": "Transition weights (rows normalized)", "rows": 3, "cols": 3, "default": [[0.5, 0.5, 0], [0.2, 0.3, 0.5], [0.4, 0, 0.6]], "min": 0, "step": 0.1, "row_labels": ["A", "B", "C"], "col_labels": ["A", "B", "C"]},
+    {"id": "start", "type": "select", "label": "Start in", "default": 0, "options": [{"value": 0, "label": "A"}, {"value": 1, "label": "B"}, {"value": 2, "label": "C"}]},
+    {"id": "k", "type": "slider", "label": "Steps k", "min": 0, "max": 30, "step": 1, "default": 3}
+  ],
+  "compute": "function compute(s) {\n  var P = s.P.map(function (row) { var t = row.reduce(function (a, b) { return a + Math.max(0, b); }, 0); return row.map(function (x) { return t > 0 ? Math.max(0, x) / t : 1 / row.length; }); });\n  function step(pi) { return [0, 1, 2].map(function (j) { return pi[0] * P[0][j] + pi[1] * P[1][j] + pi[2] * P[2][j]; }); }\n  var pi = [0, 0, 0]; pi[Number(s.start)] = 1;\n  var hist = [[], [], []], ks = [];\n  for (var k = 0; k <= s.k; k++) { ks.push(k); for (var i = 0; i < 3; i++) hist[i].push(pi[i]); if (k < s.k) pi = step(pi); }\n  var st = [1 / 3, 1 / 3, 1 / 3];\n  for (var t = 0; t < 2000; t++) st = step(st);\n  var rowErr = Math.max.apply(null, P.map(function (r) { return Math.abs(r[0] + r[1] + r[2] - 1); }));\n  return { values: { row_err: rowErr, piA: pi[0], stA: st[0], stB: st[1], stC: st[2] },\n    series: { pi: pi, stat: st, ks: ks, hA: hist[0], hB: hist[1], hC: hist[2] },\n    matrices: { P: P } };\n}",
+  "visuals": [
+    {"type": "graph", "title": "States and transition probabilities", "caption": "Arrow thickness ∝ probability; node shading and number = π<sub>k</sub>.",
+     "matrix": "matrices.P", "node_labels": ["A", "B", "C"], "node_values": "series.pi", "highlight": "state.start", "digits": 2},
+    {"type": "bar", "title": "π<sub>k</sub> vs. the stationary distribution", "series": [{"source": "series.pi", "label": "π_k"}, {"source": "series.stat", "label": "stationary"}], "x_labels": ["A", "B", "C"], "y_min": 0, "y_max": 1, "x_label": "state", "y_label": "probability"},
+    {"type": "line", "title": "Convergence", "x_source": "series.ks", "series": [{"source": "series.hA", "label": "A"}, {"source": "series.hB", "label": "B"}, {"source": "series.hC", "label": "C"}], "points": true, "y_min": 0, "y_max": 1, "x_label": "step k", "y_label": "probability"},
+    {"type": "heatmap", "title": "Normalized P", "source": "matrices.P", "row_labels": ["A", "B", "C"], "col_labels": ["A", "B", "C"], "domain": [0, 1], "row_sums": true}
+  ],
+  "explorations": [
+    {"title": "Start anywhere", "kind": "guided", "state": {"k": 30, "start": 2}, "change": "Try it.", "observe": "Same limit.", "why": "Ergodic chain.", "expect": [{"source": "values.row_err", "max": 1e-12}]},
+    {"title": "Periodic chain", "kind": "limitation", "state": {"P": [[0, 1, 0], [0, 0, 1], [1, 0, 0]], "k": 4}, "change": "Try it.", "observe": "Cycles.", "why": "Period 3.", "expect": [{"source": "values.piA", "equals": 0}]}
+  ],
+  "limitations": ["Three states only."],
+  "tests": [{"name": "rows sum to 1", "state": {}, "expect": [{"source": "values.row_err", "max": 1e-12}]},
+            {"name": "symmetric doubly-stochastic chain is uniform", "state": {"P": [[0.5, 0.25, 0.25], [0.25, 0.5, 0.25], [0.25, 0.25, 0.5]]}, "expect": [{"source": "values.stA", "equals": 0.3333333333, "tol": 1e-8}]}],
+  "source": {"paper": "COVERAGE TEST SPEC (not a showcase)", "supported": [], "simplifications": ["Template coverage: graph from a matrix, node values, highlight, self-loops."]}
+}
