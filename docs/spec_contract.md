@@ -61,12 +61,16 @@ A **single JS function expression** as a string, e.g.
 `"function compute(state) { ...; return {values:{...}, series:{...}, matrices:{...}, tables:{...}}; }"`
 
 * Pure and deterministic: no DOM, no `Math.random`, no network, no globals. Plain ES2017.
-* Must handle edge cases itself (zeros, empty, n = 1). Never return NaN for valid inputs.
+* Must handle edge cases itself (zeros, empty, n = 1). **Never return NaN/Infinity** for any input
+  the controls allow. If a quantity is genuinely undefined for the current inputs (e.g. all
+  probabilities zero), leave it out of `values` and return a top-level `warning` string explaining
+  why; the page shows it as a banner and readouts show "—". Fuzz checks accept this.
 * Receives a deep copy of `state`. Harness evaluates it as `(<compute string>)`.
 
 Return shape (all keys optional):
 ```json
-{ "values":   {"H": 1.75, "sum_p": 1},                      // scalars → readouts, tests
+{ "warning":  null,                                        // or a string when a result is undefined
+  "values":   {"H": 1.75, "sum_p": 1},                      // scalars → readouts, tests
   "series":   {"p": [0.5, 0.25], "labels": ["x1", "x2"]},   // arrays → bar/line charts
   "matrices": {"W": [[0.7, 0.3]]},                          // 2-D → heatmaps
   "tables":   {"contrib": {"cols": ["i", "p_i"], "rows": [[1, 0.5]]}} }

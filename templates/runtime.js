@@ -776,7 +776,8 @@
       out = runCompute(state);
       lastOut = out;
       var bad = Object.keys(out.values || {}).filter(function (k) { var x = out.values[k]; return typeof x === 'number' && !isFinite(x); });
-      if (bad.length) { banner.hidden = false; banner.className = 'banner warn'; banner.textContent = 'Note: these values are not finite for the current inputs: ' + bad.join(', ') + '. Check the inputs (e.g. all zeros).'; }
+      if (typeof out.warning === 'string' && out.warning) { banner.hidden = false; banner.className = 'banner warn'; banner.textContent = out.warning; }
+      else if (bad.length) { banner.hidden = false; banner.className = 'banner warn'; banner.textContent = 'Note: these values are not finite for the current inputs: ' + bad.join(', ') + '. Check the inputs (e.g. all zeros).'; }
       else banner.hidden = true;
     } catch (e) {
       banner.hidden = false; banner.className = 'banner error';

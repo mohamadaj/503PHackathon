@@ -12,57 +12,237 @@
       "H is the sum of the contributions. It is 0 for a certain outcome and at most log<sub>2</sub> n, reached when all n outcomes are equally likely."
     ],
     "symbols": [
-      {"symbol": "H", "meaning": "entropy of the distribution (average surprise)", "unit": "bits, 0 ≤ H ≤ log<sub>2</sub> n"},
-      {"symbol": "n", "meaning": "number of possible outcomes", "unit": "1 – 8 here"},
-      {"symbol": "p<sub>i</sub>", "meaning": "probability of outcome i", "unit": "0 – 1, Σ p<sub>i</sub> = 1"},
-      {"symbol": "−log<sub>2</sub> p<sub>i</sub>", "meaning": "surprise (information) of outcome i", "unit": "bits"},
-      {"symbol": "K", "meaning": "positive constant in Shannon's formula; it only chooses the unit (base-2 logs give bits)", "unit": "—"}
+      {
+        "symbol": "H",
+        "meaning": "entropy of the distribution (average surprise)",
+        "unit": "bits, 0 ≤ H ≤ log<sub>2</sub> n"
+      },
+      {
+        "symbol": "n",
+        "meaning": "number of possible outcomes",
+        "unit": "1 – 8 here"
+      },
+      {
+        "symbol": "p<sub>i</sub>",
+        "meaning": "probability of outcome i",
+        "unit": "0 – 1, Σ p<sub>i</sub> = 1"
+      },
+      {
+        "symbol": "−log<sub>2</sub> p<sub>i</sub>",
+        "meaning": "surprise (information) of outcome i",
+        "unit": "bits"
+      },
+      {
+        "symbol": "K",
+        "meaning": "positive constant in Shannon's formula; it only chooses the unit (base-2 logs give bits)",
+        "unit": "—"
+      }
     ]
   },
   "controls": [
-    {"id": "n", "type": "slider", "label": "Number of outcomes n", "min": 1, "max": 8, "step": 1, "default": 4,
-     "help": "New outcomes start with weight 0."},
-    {"id": "p", "type": "vector", "label": "Weights (normalized to probabilities)", "length_from": "n",
-     "default": [0.5, 0.25, 0.125, 0.125], "fill": 0, "min": 0, "max": 100, "step": 0.05, "item_labels": "x{i}", "normalize": true,
-     "help": "Type any non-negative weights; the page divides by their sum to get p<sub>i</sub>. Press Normalize to rewrite them as probabilities."}
+    {
+      "id": "n",
+      "type": "slider",
+      "label": "Number of outcomes n",
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "default": 4,
+      "help": "New outcomes start with weight 0."
+    },
+    {
+      "id": "p",
+      "type": "vector",
+      "label": "Weights (normalized to probabilities)",
+      "length_from": "n",
+      "default": [
+        0.5,
+        0.25,
+        0.125,
+        0.125
+      ],
+      "fill": 0,
+      "min": 0,
+      "max": 100,
+      "step": 0.05,
+      "item_labels": "x{i}",
+      "normalize": true,
+      "help": "Type any non-negative weights; the page divides by their sum to get p<sub>i</sub>. Press Normalize to rewrite them as probabilities."
+    }
   ],
   "presets": [
-    {"label": "Certain", "state": {"n": 4, "p": [1, 0, 0, 0]}},
-    {"label": "Uniform (4)", "state": {"n": 4, "p": [1, 1, 1, 1]}},
-    {"label": "Skewed", "state": {"n": 4, "p": [0.7, 0.1, 0.1, 0.1]}},
-    {"label": "Fair coin", "state": {"n": 2, "p": [1, 1]}}
+    {
+      "label": "Certain",
+      "state": {
+        "n": 4,
+        "p": [
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "label": "Uniform (4)",
+      "state": {
+        "n": 4,
+        "p": [
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "label": "Skewed",
+      "state": {
+        "n": 4,
+        "p": [
+          0.7,
+          0.1,
+          0.1,
+          0.1
+        ]
+      }
+    },
+    {
+      "label": "Fair coin",
+      "state": {
+        "n": 2,
+        "p": [
+          1,
+          1
+        ]
+      }
+    }
   ],
-  "compute": "function compute(state) {\n  var w = state.p.map(function (x) { return Math.max(0, Number(x) || 0); });\n  var n = w.length;\n  var raw = w.reduce(function (a, b) { return a + b; }, 0);\n  var p = w.map(function (x) { return raw > 0 ? x / raw : NaN; });\n  var surprise = p.map(function (q) { return q > 0 ? -Math.log2(q) : Infinity; });\n  var contrib = p.map(function (q) { return q > 0 ? -q * Math.log2(q) : (q === 0 ? 0 : NaN); });\n  var H = contrib.reduce(function (a, b) { return a + b; }, 0);\n  var sumP = p.reduce(function (a, b) { return a + b; }, 0);\n  var labels = p.map(function (_, i) { return 'x' + (i + 1); });\n  var rows = p.map(function (q, i) { return [labels[i], w[i], q, q > 0 ? surprise[i] : '∞ (never occurs)', contrib[i]]; });\n  rows.push(['Σ', raw, sumP, '', H]);\n  var ns = [], logn = [];\n  for (var k = 1; k <= 8; k++) { ns.push(k); logn.push(Math.log2(k)); }\n  return {\n    values: { H: H, H_max: Math.log2(Math.max(1, n)), sum_p: sumP, raw_sum: raw, n: n },\n    series: { p: p, contrib: contrib, labels: labels, ns: ns, logn: logn },\n    tables: { contrib: { cols: ['Outcome', 'Weight', 'p<sub>i</sub>', '−log<sub>2</sub> p<sub>i</sub> (bits)', '−p<sub>i</sub> log<sub>2</sub> p<sub>i</sub> (bits)'], rows: rows } }\n  };\n}",
+  "compute": "function compute(state) {\n  var w = state.p.map(function (x) { return Math.max(0, Number(x) || 0); });\n  var n = w.length;\n  var raw = w.reduce(function (a, b) { return a + b; }, 0);\n  var p = w.map(function (x) { return raw > 0 ? x / raw : 0; });\n  var surprise = p.map(function (q) { return q > 0 ? -Math.log2(q) : Infinity; });\n  var contrib = p.map(function (q) { return q > 0 ? -q * Math.log2(q) : 0; });\n  var H = contrib.reduce(function (a, b) { return a + b; }, 0);\n  var sumP = p.reduce(function (a, b) { return a + b; }, 0);\n  var labels = p.map(function (_, i) { return 'x' + (i + 1); });\n  var rows = p.map(function (q, i) { return [labels[i], w[i], q, q > 0 ? surprise[i] : '∞ (never occurs)', contrib[i]]; });\n  rows.push(['Σ', raw, sumP, '', H]);\n  var ns = [], logn = [];\n  for (var k = 1; k <= 8; k++) { ns.push(k); logn.push(Math.log2(k)); }\n  var values = { H_max: Math.log2(Math.max(1, n)), sum_p: sumP, raw_sum: raw, n: n };\n  if (raw > 0) values.H = H;\n  return {\n    warning: raw > 0 ? null : 'All weights are zero, so there is no probability distribution and H is undefined. Enter at least one positive weight.',\n    values: values,\n    series: { p: p, contrib: contrib, labels: labels, ns: ns, logn: logn },\n    tables: { contrib: { cols: ['Outcome', 'Weight', 'p<sub>i</sub>', '−log<sub>2</sub> p<sub>i</sub> (bits)', '−p<sub>i</sub> log<sub>2</sub> p<sub>i</sub> (bits)'], rows: rows } }\n  };\n}",
   "visuals": [
-    {"type": "readouts", "title": "Result", "items": [
-      {"source": "values.H", "label": "Entropy H", "unit": "bits", "digits": 3},
-      {"source": "values.H_max", "label": "Maximum possible, log<sub>2</sub> n", "unit": "bits", "digits": 3},
-      {"source": "values.sum_p", "label": "Check: Σ p<sub>i</sub>", "digits": 3}
-    ]},
-    {"type": "bar", "title": "Probabilities and their contributions to H",
-     "caption": "Blue: probability of each outcome. Orange: how many bits that outcome adds to H. A bar of height 1 in blue gives an orange bar of 0.",
-     "series": [{"source": "series.p", "label": "p<sub>i</sub>"}, {"source": "series.contrib", "label": "−p<sub>i</sub> log<sub>2</sub> p<sub>i</sub> (bits)"}],
-     "x_labels": "series.labels", "x_label": "Outcome", "y_label": "Probability / bits", "y_min": 0, "y_max": 1},
-    {"type": "line", "title": "H never exceeds log<sub>2</sub> n",
-     "caption": "The curve is the upper bound log<sub>2</sub> n. The red dot is your distribution. It touches the curve only when all outcomes are equally likely.",
-     "x_source": "series.ns", "series": [{"source": "series.logn", "label": "log2 n (maximum)"}],
-     "x_label": "Number of outcomes n", "y_label": "bits", "y_min": 0, "points": true,
-     "marker": {"x": "values.n", "y": "values.H", "label": "your H"}},
-    {"type": "table", "title": "Step-by-step calculation", "source": "tables.contrib", "digits": 4}
+    {
+      "type": "readouts",
+      "title": "Result",
+      "items": [
+        {
+          "source": "values.H",
+          "label": "Entropy H",
+          "unit": "bits",
+          "digits": 3
+        },
+        {
+          "source": "values.H_max",
+          "label": "Maximum possible, log<sub>2</sub> n",
+          "unit": "bits",
+          "digits": 3
+        },
+        {
+          "source": "values.sum_p",
+          "label": "Check: Σ p<sub>i</sub>",
+          "digits": 3
+        }
+      ]
+    },
+    {
+      "type": "bar",
+      "title": "Probabilities and their contributions to H",
+      "caption": "Blue: probability of each outcome. Orange: how many bits that outcome adds to H. A bar of height 1 in blue gives an orange bar of 0.",
+      "series": [
+        {
+          "source": "series.p",
+          "label": "p<sub>i</sub>"
+        },
+        {
+          "source": "series.contrib",
+          "label": "−p<sub>i</sub> log<sub>2</sub> p<sub>i</sub> (bits)"
+        }
+      ],
+      "x_labels": "series.labels",
+      "x_label": "Outcome",
+      "y_label": "Probability / bits",
+      "y_min": 0,
+      "y_max": 1
+    },
+    {
+      "type": "line",
+      "title": "H never exceeds log<sub>2</sub> n",
+      "caption": "The curve is the upper bound log<sub>2</sub> n. The red dot is your distribution. It touches the curve only when all outcomes are equally likely.",
+      "x_source": "series.ns",
+      "series": [
+        {
+          "source": "series.logn",
+          "label": "log2 n (maximum)"
+        }
+      ],
+      "x_label": "Number of outcomes n",
+      "y_label": "bits",
+      "y_min": 0,
+      "points": true,
+      "marker": {
+        "x": "values.n",
+        "y": "values.H",
+        "label": "your H"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Step-by-step calculation",
+      "source": "tables.contrib",
+      "digits": 4
+    }
   ],
   "explorations": [
-    {"title": "Certainty vs. four equally likely outcomes", "kind": "guided",
-     "state": {"n": 4, "p": [1, 0, 0, 0]},
-     "change": "Press <b>Try it</b> (one outcome has probability 1). Then set all four weights to 1.",
-     "observe": "With a certain outcome H = 0 bits. With four equal outcomes H = 2 bits, exactly log<sub>2</sub> 4, and the red dot sits on the curve.",
-     "why": "A sure outcome carries no surprise (−log<sub>2</sub> 1 = 0). With four equally likely outcomes each one has surprise log<sub>2</sub> 4 = 2 bits, and that is the largest average possible for n = 4.",
-     "expect": [{"source": "values.H", "equals": 0, "tol": 1e-9}]},
-    {"title": "Impossible outcomes, and what entropy does not measure", "kind": "limitation",
-     "state": {"n": 4, "p": [0.5, 0.5, 0, 0]},
-     "change": "Press <b>Try it</b>: two outcomes at 0.5 and two at 0. Then increase n to 8 (new outcomes get weight 0), and finally swap the order of the weights.",
-     "observe": "H stays at 1 bit even though log<sub>2</sub> n grows. Reordering the weights also leaves H unchanged.",
-     "why": "By convention 0 · log 0 = 0 (the limit of p log p as p → 0), so impossible outcomes add nothing; they are not an error. Entropy depends only on the probability values, not on which outcome has which value or what the outcomes mean. It measures uncertainty, not the meaning or usefulness of a message.",
-     "expect": [{"source": "values.H", "equals": 1, "tol": 1e-9}, {"source": "values.H_max", "equals": 2, "tol": 1e-9}]}
+    {
+      "title": "Certainty vs. four equally likely outcomes",
+      "kind": "guided",
+      "state": {
+        "n": 4,
+        "p": [
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "change": "Press <b>Try it</b> (one outcome has probability 1). Then set all four weights to 1.",
+      "observe": "With a certain outcome H = 0 bits. With four equal outcomes H = 2 bits, exactly log<sub>2</sub> 4, and the red dot sits on the curve.",
+      "why": "A sure outcome carries no surprise (−log<sub>2</sub> 1 = 0). With four equally likely outcomes each one has surprise log<sub>2</sub> 4 = 2 bits, and that is the largest average possible for n = 4.",
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 0,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "title": "Impossible outcomes, and what entropy does not measure",
+      "kind": "limitation",
+      "state": {
+        "n": 4,
+        "p": [
+          0.5,
+          0.5,
+          0,
+          0
+        ]
+      },
+      "change": "Press <b>Try it</b>: two outcomes at 0.5 and two at 0. Then increase n to 8 (new outcomes get weight 0), and finally swap the order of the weights.",
+      "observe": "H stays at 1 bit even though log<sub>2</sub> n grows. Reordering the weights also leaves H unchanged.",
+      "why": "By convention 0 · log 0 = 0 (the limit of p log p as p → 0), so impossible outcomes add nothing; they are not an error. Entropy depends only on the probability values, not on which outcome has which value or what the outcomes mean. It measures uncertainty, not the meaning or usefulness of a message.",
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 1,
+          "tol": 1e-09
+        },
+        {
+          "source": "values.H_max",
+          "equals": 2,
+          "tol": 1e-09
+        }
+      ]
+    }
   ],
   "limitations": [
     "Outcomes are treated as independent draws from a fixed, known distribution. Shannon's later sections handle sources with memory, which this demo does not cover.",
@@ -71,23 +251,168 @@
     "Base-2 logarithms give bits. Shannon's constant K only fixes the unit; natural logs would give the same idea in nats."
   ],
   "tests": [
-    {"name": "Certain outcome gives 0 bits", "state": {"n": 4, "p": [1, 0, 0, 0]}, "expect": [{"source": "values.H", "equals": 0, "tol": 1e-9}]},
-    {"name": "Four equally likely outcomes give 2 bits", "state": {"n": 4, "p": [1, 1, 1, 1]}, "expect": [{"source": "values.H", "equals": 2, "tol": 1e-9}]},
-    {"name": "Eight equally likely outcomes give 3 bits", "state": {"n": 8, "p": [1, 1, 1, 1, 1, 1, 1, 1]}, "expect": [{"source": "values.H", "equals": 3, "tol": 1e-9}]},
-    {"name": "Zero probabilities are handled (0·log 0 = 0)", "state": {"n": 3, "p": [0.5, 0.5, 0]}, "expect": [{"source": "values.H", "equals": 1, "tol": 1e-9}]},
-    {"name": "Default distribution (½, ¼, ⅛, ⅛) gives 1.75 bits", "state": {}, "expect": [{"source": "values.H", "equals": 1.75, "tol": 1e-9}]},
-    {"name": "Probabilities sum to 1 after normalizing", "state": {"n": 3, "p": [2, 3, 5]}, "expect": [{"source": "values.sum_p", "equals": 1, "tol": 1e-9}]},
-    {"name": "Single outcome (n = 1) gives 0 bits", "state": {"n": 1, "p": [1]}, "expect": [{"source": "values.H", "equals": 0, "tol": 1e-9}]}
+    {
+      "name": "Certain outcome gives 0 bits",
+      "state": {
+        "n": 4,
+        "p": [
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 0,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "Four equally likely outcomes give 2 bits",
+      "state": {
+        "n": 4,
+        "p": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 2,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "Eight equally likely outcomes give 3 bits",
+      "state": {
+        "n": 8,
+        "p": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 3,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "Zero probabilities are handled (0·log 0 = 0)",
+      "state": {
+        "n": 3,
+        "p": [
+          0.5,
+          0.5,
+          0
+        ]
+      },
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 1,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "Default distribution (½, ¼, ⅛, ⅛) gives 1.75 bits",
+      "state": {},
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 1.75,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "Probabilities sum to 1 after normalizing",
+      "state": {
+        "n": 3,
+        "p": [
+          2,
+          3,
+          5
+        ]
+      },
+      "expect": [
+        {
+          "source": "values.sum_p",
+          "equals": 1,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "Single outcome (n = 1) gives 0 bits",
+      "state": {
+        "n": 1,
+        "p": [
+          1
+        ]
+      },
+      "expect": [
+        {
+          "source": "values.H",
+          "equals": 0,
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "All-zero weights: H is left undefined (no NaN)",
+      "state": {
+        "n": 3,
+        "p": [
+          0,
+          0,
+          0
+        ]
+      },
+      "expect": [
+        {
+          "source": "values.sum_p",
+          "equals": 0
+        }
+      ]
+    }
   ],
   "source": {
-    "paper": "A Mathematical Theory of Communication", "authors": "C. E. Shannon", "year": "1948",
+    "paper": "A Mathematical Theory of Communication",
+    "authors": "C. E. Shannon",
+    "year": "1948",
     "url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf",
     "section": "Part I, Section 6: Choice, Uncertainty and Entropy",
     "equation": "H = −K Σ<sub>i=1</sub><sup>n</sup> p<sub>i</sub> log p<sub>i</sub>   (Theorem 2, with K = 1 and base-2 logs here)",
     "supported": [
-      {"claim": "Entropy has the form H = −Σ p<sub>i</sub> log p<sub>i</sub>, and K only sets the unit.", "quote": "the constant K merely amounts to a choice of a unit of measure"},
-      {"claim": "H is zero only when the outcome is certain.", "quote": "H = 0 if and only if all the pi but one are zero, this one having the value unity"},
-      {"claim": "For a given n, H is largest, log n, when all outcomes are equally likely.", "quote": "For a given n, H is a maximum and equal to log n when all the pi are equal"}
+      {
+        "claim": "Entropy has the form H = −Σ p<sub>i</sub> log p<sub>i</sub>, and K only sets the unit.",
+        "quote": "the constant K merely amounts to a choice of a unit of measure"
+      },
+      {
+        "claim": "H is zero only when the outcome is certain.",
+        "quote": "H = 0 if and only if all the pi but one are zero, this one having the value unity"
+      },
+      {
+        "claim": "For a given n, H is largest, log n, when all outcomes are equally likely.",
+        "quote": "For a given n, H is a maximum and equal to log n when all the pi are equal"
+      }
     ],
     "simplifications": [
       "We fix K = 1 and use base-2 logarithms so H is in bits.",
