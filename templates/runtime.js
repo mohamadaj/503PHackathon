@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   var SVGNS = 'http://www.w3.org/2000/svg';
-  var W = 600;
+  var W = 600; // chart width in SVG units; set per chart to its container width (300–600) so text stays full size
 
   // ---------- small DOM helpers ----------
   function el(tag, attrs, parent, text) {
@@ -466,6 +466,7 @@
       renderers.push(function (out) {
         try {
           if (v.type === 'custom' && !prepared) prepared = compileFn(v.draw, 'draw()');
+          W = Math.max(300, Math.min(600, Math.round(body.clientWidth || 600)));
           draw(v, body, out, state, prepared);
           err.hidden = true;
         } catch (e) {
@@ -909,6 +910,14 @@
     d.className = 'boot-error'; d.textContent = msg;
     document.body.insertBefore(d, document.body.firstChild);
   }
+
+  var lastWidth = window.innerWidth, resizeTimer = null;
+  window.addEventListener('resize', function () {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { if (lastOut) renderers.forEach(function (r) { r(lastOut); }); }, 120);
+  });
 
   // ---------- boot ----------
   guard('hero', buildHero);

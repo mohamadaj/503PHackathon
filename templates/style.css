@@ -29,6 +29,8 @@ h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .4rem; }
 h2 { font-size: 1.25rem; margin: 0 0 .8rem; }
 h3 { font-size: 1.02rem; margin: 0 0 .4rem; }
 p { margin: 0 0 .7rem; }
+main, .hero { overflow-wrap: break-word; }
+.cite code { overflow-wrap: anywhere; }
 code, .mono { font-family: var(--mono); font-size: .92em; }
 sub, sup { font-size: .72em; }
 
