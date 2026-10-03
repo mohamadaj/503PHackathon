@@ -640,14 +640,39 @@ class _JSChecks:
     def dead_controls(self, outputs):
         used_directly = _controls_read_outside_compute(self.spec)
         live = [cid for cid, outs in outputs.items() if len(outs) > 1 or cid in used_directly]
+        by_id = {c["id"]: c for c in self.spec.get("controls") or [] if isinstance(c, dict) and isinstance(c.get("id"), str)}
+        # A control can be inert only at the defaults (e.g. LoRA's A while B = 0): retry each candidate with every
+        # other control moved off its default before calling it dead.
+        for cid in [c for c in outputs if c not in live]:
+            if self.guard(f"dead-control retry {cid}", self.matters_with_others, by_id.get(cid), by_id):
+                live.append(cid)
         dead = [cid for cid in outputs if cid not in live]
         self.stats["live_controls"], self.stats["dead_controls"] = live, dead
         if dead:
-            self.notes.append(f"controls that change nothing between their extremes: {', '.join(dead)}")
+            self.notes.append(f"controls that changed nothing in any state tried (alone, and with each other "
+                              f"control moved): {', '.join(dead)}")
         if len(live) < MIN_LIVE_CONTROLS:
             self.fail(f"controls: only {len(live)} control(s) change the computed output ({', '.join(live) or 'none'}); "
                       f"changing these from min to max changes nothing: {', '.join(dead)}. "
                       f"Make compute use every control (read state.<id>) or replace it with one that matters")
+
+    def matters_with_others(self, c, by_id):
+        """Does control c change the output once some other control is moved off its default?"""
+        if not c:
+            return False
+        mine = _fuzz_values(c)
+        for other in by_id.values():
+            if other is c or not self.budget_left():
+                continue
+            for ov in _fuzz_values(other)[:1]:
+                base, err = self.js.call("__compute", json.dumps({other["id"]: ov}))
+                if err or not base or base.get("error"):
+                    continue
+                for v in mine:
+                    r, err = self.js.call("__compute", json.dumps({other["id"]: ov, c["id"]: v}))
+                    if not err and r and not r.get("error") and r["out"] != base["out"]:
+                        return True
+        return False
 
     def report(self):
         self.stats["calls"] = self.js.calls
@@ -709,16 +734,34 @@ def _fuzz_values(c):
         return [not d]
     if t == "select":
         return [o["value"] for o in c.get("options") or [] if isinstance(o, dict) and o.get("value") != d]
-    if t == "vector" and isinstance(d, list) and d:
+    if t == "vector" and isinstance(d, list) and d and all(_is_num(x) for x in d):
         vals = [[_nudge(c, d[0])] + list(d[1:])]
+        if len(d) > 1:
+            vals.append(list(d[:-1]) + [_nudge(c, d[-1])])
         if _in_range(c, 0):  # degenerate inputs a learner can type: all zeros, a single nonzero entry
             vals.append([0] * len(d))
             one = 1 if _in_range(c, 1) else c.get("max")
             if len(d) > 1 and _is_num(one) and one != 0:
                 vals.append([one] + [0] * (len(d) - 1))
         return vals
-    if t == "matrix" and isinstance(d, list) and d and isinstance(d[0], list) and d[0]:
-        return [[[_nudge(c, d[0][0])] + list(d[0][1:])] + [list(r) for r in d[1:]]]
+    if (t == "matrix" and isinstance(d, list) and d and all(isinstance(r, list) and r for r in d)
+            and all(_is_num(x) for r in d for x in r)):
+        # [0][0], one off-diagonal entry FLIPPED (a nonzero becomes 0, a zero becomes nonzero: adjacency and mask
+        # matrices are often binarized, so +step changes nothing there) and the last entry
+        off = (0, 1) if len(d[0]) > 1 else (1, 0)
+        vals = []
+        for (i, j), how in {(0, 0): "nudge", off: "flip", (len(d) - 1, len(d[-1]) - 1): "nudge"}.items():
+            if i < len(d) and j < len(d[i]):
+                m = [list(r) for r in d]
+                x = m[i][j]
+                m[i][j] = 0 if how == "flip" and x != 0 and _in_range(c, 0) else _nudge(c, x)
+                vals.append(m)
+        if len(d) > 1 and all(len(r) == len(d) for r in d):  # square: flip the symmetric pair (undirected graphs)
+            m = [list(r) for r in d]
+            for i, j in ((0, 1), (1, 0)):
+                m[i][j] = 0 if m[i][j] != 0 and _in_range(c, 0) else _nudge(c, m[i][j])
+            vals.append(m)
+        return vals
     return []
 
 

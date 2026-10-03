@@ -266,6 +266,43 @@ def test_one_dead_control_is_a_note_not_a_failure():
     assert r["stats"]["dead_controls"] == ["show"] and any("show" in n for n in r["notes"])
 
 
+def _mini_spec(controls, compute):
+    """Smallest valid spec around the given controls and compute (returns values.y and series.v)."""
+    exp = [{"source": "values.y", "min": -1e9}]
+    return {"title": "t", "intro": {"idea": "i", "why": "w", "symbols": [{"symbol": "y", "meaning": "m"}]},
+            "controls": controls, "compute": compute,
+            "visuals": [{"type": "bar", "title": "v", "x_label": "i", "y_label": "v", "series": [{"source": "series.v", "label": "v"}]},
+                        {"type": "readouts", "title": "y", "items": [{"source": "values.y", "label": "y"}]}],
+            "explorations": [{"title": "a", "kind": "guided", "state": {}, "change": "c", "observe": "o", "why": "w", "expect": exp},
+                             {"title": "b", "kind": "limitation", "state": {}, "change": "c", "observe": "o", "why": "w", "expect": exp}],
+            "limitations": ["l"], "tests": [{"name": "a", "state": {}, "expect": exp}, {"name": "b", "state": {}, "expect": exp}],
+            "source": {"paper": "p", "section": "s", "supported": [], "simplifications": ["s"]}}
+
+
+def test_control_that_matters_only_with_another_is_live():
+    """Like LoRA: ΔW = B·A with B = 0 by default, so A alone changes nothing at the defaults."""
+    s = _mini_spec([{"id": "b", "type": "slider", "label": "b", "min": 0, "max": 2, "step": 1, "default": 0},
+                    {"id": "a", "type": "vector", "label": "a", "length": 3, "default": [1, 2, 3]},
+                    {"id": "unused", "type": "toggle", "label": "u", "default": False}],
+                   "function compute(s) { var v = s.a.map(function (x) { return s.b * x; }); "
+                   "return {values: {y: v[0]}, series: {v: v}}; }")
+    r = check_report(s)
+    assert r["ok"], r["failures"]
+    assert set(r["stats"]["live_controls"]) == {"a", "b"} and r["stats"]["dead_controls"] == ["unused"], r["stats"]
+
+
+def test_binarized_symmetric_adjacency_is_live():
+    """Like GCN: compute ignores the diagonal, maps any nonzero to 1 and symmetrizes A[i][j] || A[j][i]."""
+    s = _mini_spec([{"id": "n", "type": "slider", "label": "n", "min": 2, "max": 4, "step": 1, "default": 3},
+                    {"id": "A", "type": "matrix", "label": "A", "rows_from": "n", "cols_from": "n", "step": 1,
+                     "default": [[0, 1, 0], [1, 0, 1], [0, 1, 0]]}],
+                   "function compute(s) { var n = s.A.length, deg = []; for (var i = 0; i < n; i++) { var d = 0; "
+                   "for (var j = 0; j < n; j++) { if (i !== j && (s.A[i][j] || s.A[j][i])) d += 1; } deg.push(d); } "
+                   "return {values: {y: deg[0]}, series: {v: deg}}; }")
+    r = check_report(s)
+    assert r["ok"] and r["stats"]["dead_controls"] == [], (r["failures"], r["stats"])
+
+
 def test_control_used_only_by_draw_is_live():
     s = golden("conv1d")  # conv1d's draw reads state.s directly
     used = checks._controls_read_outside_compute(s)
