@@ -5,7 +5,7 @@ Given a research-paper case (`case.json`), the agent produces one self-contained
 ## Team
 - Mohamad El Ajouz: agent core (CLI, OpenRouter client, trace + budget guard, excerpt compression, extraction and repair, main loop, README)
 - Adam Hijazi: page template, widgets, charts, `render.py`, spec contract
-- Taha Fayed: `checks.py` JS harness, `spec_schema.py` validation, test cases
+- Taha Fayed: `spec_schema.py` (structural validator + zero-token text normalization), `checks.py` (runs B's real runtime functions in QuickJS: tests, explorations, presets, fuzzing, path resolution, timeouts, the undefined-value `warning` rule), quote verification against the excerpt, final HTML check, practice cases, mock assessor
 
 ## Run
 ```bash
@@ -53,6 +53,7 @@ latency are scored. Typical run: 1 LLM call, about 2–3k prompt + 3–5k comple
 | `checks.py` | runs the spec's JavaScript in QuickJS; verifies quotes; checks the final HTML |
 | `render.py`, `templates/` | spec → self-contained HTML (see below) |
 | `tools/run_cases.py` | dev only: runs every `examples/*/case.json` N times and writes a summary table |
+| `tools/` (others), `tests/` | dev only: mock assessor, browser checks, unit tests. **Not needed to run the agent** and not used during assessment |
 
 Exit codes: `0` page written from a spec (even if some checks still fail; remaining failures are in the trace), `1` no usable spec (fallback page written), `2` bad input or missing key.
 
@@ -121,7 +122,7 @@ vanilla JavaScript, and fonts are the system font stack.
 Other practice inputs are in `examples/*/case.json`; outputs during assessment are generated afresh.
 
 ## Credits and reuse
-- Libraries: [`requests`](https://pypi.org/project/requests/) (HTTP), [`quickjs`](https://pypi.org/project/quickjs/) (QuickJS engine bindings, used to run generated JavaScript in checks). No other third-party code, fonts or assets.
+- Libraries: [`requests`](https://pypi.org/project/requests/) (Apache-2.0, HTTP) and [`quickjs`](https://pypi.org/project/quickjs/) 1.19.4 (MIT; Python bindings by Petter Strandmark / Quentin Wenger for Fabrice Bellard's [QuickJS](https://bellard.org/quickjs/) engine, MIT), used to run the generated JavaScript during checks. No other third-party code, fonts or assets.
 - Model access via [OpenRouter](https://openrouter.ai/docs/quickstart).
 - AI coding assistants (Claude, Claude Code) were used during development; all code was reviewed and tested by the team.
 - Papers used for practice inputs are cited in each `examples/*/case.json` (`source_url`).
