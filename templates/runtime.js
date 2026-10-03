@@ -31,19 +31,25 @@
   }
 
   // ---------- rich text (tag allowlist, no attributes) ----------
+  // Parsed in an inert DOMParser document (no scripts run, nothing loads), then rebuilt:
+  // allowed tags are recreated without attributes, other tags are unwrapped to their text,
+  // and DROP tags are removed with their content. A "<" that does not look like a tag
+  // (e.g. "a<b and x > y": no "=" in the would-be attributes) is kept as a literal "<".
   var ALLOWED = { B: 1, I: 1, EM: 1, STRONG: 1, SUB: 1, SUP: 1, CODE: 1, BR: 1 };
-  var TAG_OK = /<(?!\/?(?:b|i|em|strong|sub|sup|code)>|br\s*\/?>)/gi;
+  var DROP = { SCRIPT: 1, STYLE: 1, TEMPLATE: 1, IFRAME: 1, OBJECT: 1, EMBED: 1, NOSCRIPT: 1, TEXTAREA: 1, TITLE: 1, SVG: 1, MATH: 1 };
+  var TAG_LIKE = /<(\/?[a-zA-Z][a-zA-Z0-9]*(?:\s+[^<>]*=[^<>]*)?\s*\/?>)?/g;
   function rich(target, str) {
     if (str == null) return target;
-    var src = String(str).replace(TAG_OK, '&lt;');
-    var doc = new DOMParser().parseFromString('<body>' + src + '</body>', 'text/html');
+    var src = String(str).replace(TAG_LIKE, function (m, tag) { return tag ? m : '&lt;'; });
+    var doc = new DOMParser().parseFromString('<!doctype html><body>' + src + '</body>', 'text/html');
     (function walk(from, to) {
       for (var i = 0; i < from.childNodes.length; i++) {
         var n = from.childNodes[i];
         if (n.nodeType === 3) to.appendChild(document.createTextNode(n.nodeValue));
         else if (n.nodeType === 1) {
-          if (ALLOWED[n.tagName]) walk(n, to.appendChild(document.createElement(n.tagName)));
-          else if (n.tagName !== 'SCRIPT' && n.tagName !== 'STYLE') walk(n, to);
+          var tag = n.tagName.toUpperCase();
+          if (ALLOWED[tag]) walk(n, to.appendChild(document.createElement(tag)));
+          else if (!DROP[tag]) walk(n, to);
         }
       }
     })(doc.body, target);
@@ -100,14 +106,45 @@
     var k = d1 === d0 ? 0 : (r1 - r0) / (d1 - d0);
     return function (v) { return r0 + (v - d0) * k; };
   }
-  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
   function seriesColor(i) { return 'var(--s' + ((i % 5) + 1) + ')'; }
+
+  // ---------- spec normalization: coerce model output to the contract's shapes ----------
+  function isObj(x) { return x !== null && typeof x === 'object' && !Array.isArray(x); }
+  function asArr(x) { return Array.isArray(x) ? x : (x == null ? [] : [x]); }
+  function objs(x) { return asArr(x).filter(isObj); }
+  function str(x) { return typeof x === 'string' ? x : (typeof x === 'number' ? String(x) : ''); }
+  function strs(x) { return asArr(x).map(str).filter(Boolean); }
+  function normalize(raw) {
+    var s = isObj(raw) ? raw : {};
+    s.title = str(s.title); s.subtitle = str(s.subtitle); s.audience = str(s.audience);
+    var it = isObj(s.intro) ? s.intro : { idea: str(s.intro) };
+    it.idea = str(it.idea); it.why = str(it.why); it.steps = strs(it.steps); it.symbols = objs(it.symbols);
+    s.intro = it;
+    var seen = {};
+    s.controls = objs(s.controls).filter(function (c) {
+      if (typeof c.id !== 'string' || !c.id || seen[c.id]) return false;
+      return (seen[c.id] = true);
+    });
+    s.presets = objs(s.presets).map(function (p) { p.state = isObj(p.state) ? p.state : {}; return p; });
+    s.compute = typeof s.compute === 'string' ? s.compute : null;
+    s.visuals = objs(s.visuals);
+    s.explorations = objs(s.explorations).map(function (x) {
+      x.state = isObj(x.state) ? x.state : null; x.expect = objs(x.expect); return x;
+    });
+    s.limitations = strs(s.limitations);
+    s.tests = objs(s.tests).map(function (t) { t.state = isObj(t.state) ? t.state : {}; t.expect = objs(t.expect); return t; });
+    var src = isObj(s.source) ? s.source : { paper: str(s.source) };
+    src.supported = asArr(src.supported).filter(function (x) { return typeof x === 'string' || isObj(x); });
+    src.simplifications = strs(src.simplifications);
+    s.source = src;
+    return s;
+  }
 
   // ---------- spec + state ----------
   var spec;
-  try { spec = JSON.parse(document.getElementById('spec').textContent); }
+  try { spec = normalize(JSON.parse(document.getElementById('spec').textContent)); }
   catch (e) { bootError('The page specification could not be read: ' + e.message); return; }
-  var controls = Array.isArray(spec.controls) ? spec.controls : [];
+  var controls = spec.controls;
   var byId = {};
   controls.forEach(function (c) { if (c && c.id) byId[c.id] = c; });
 
@@ -237,7 +274,7 @@
     if (spec.subtitle) rich(el('p', { class: 'subtitle' }, h), spec.subtitle);
     var chips = el('div', { class: 'chips' }, h);
     var s = spec.source || {};
-    if (s.paper) el('span', { class: 'chip paper' }, chips, s.paper + (s.year ? ' (' + s.year + ')' : '') + (s.section ? ' · ' + plain(s.section) : ''));
+    if (s.paper) el('span', { class: 'chip paper' }, chips, plain(s.paper) + (s.year ? ' (' + s.year + ')' : '') + (s.section ? ' · ' + plain(s.section) : ''));
     if (spec.audience) el('span', { class: 'chip' }, chips, 'For: ' + spec.audience);
   }
 
@@ -431,6 +468,7 @@
           draw(v, body, out, state, prepared);
           err.hidden = true;
         } catch (e) {
+          body.textContent = '';
           err.hidden = false;
           err.textContent = 'This visual could not be drawn: ' + e.message;
         }
@@ -494,6 +532,7 @@
       var ser = (v.series || []).map(function (s) { return { label: String(s.label || s.source), data: numArr(resolve(s.source, out, st), s.source) }; });
       if (!ser.length) throw new Error('bar chart has no series');
       var n = Math.max.apply(null, ser.map(function (s) { return s.data.length; }));
+      if (!n) { body.textContent = ''; el('p', { class: 'caption' }, body, 'Nothing to plot for these inputs (the series is empty).'); return; }
       var h = 300, m = { l: 58, r: 14, t: ser.length > 1 ? 28 : 14, b: 52 };
       var svg = newSvg(body, h);
       legend(svg, ser.map(function (s) { return s.label; }), m);
@@ -667,7 +706,9 @@
       else banner.hidden = true;
     } catch (e) {
       banner.hidden = false; banner.className = 'banner error';
-      banner.textContent = 'Calculation error for these inputs: ' + e.message + (lastOut ? ' (showing the last valid result)' : '');
+      banner.textContent = computeFn
+        ? 'Calculation error for these inputs: ' + e.message + (lastOut ? ' (showing the last valid result)' : '')
+        : 'The calculation code could not be loaded, so the interactive parts are unavailable: ' + e.message;
       out = lastOut;
       if (!out) return;
     }
@@ -740,7 +781,7 @@
     var host = section('source'), s = spec.source || {};
     var cite = el('div', { class: 'cite' }, host);
     var line = el('div', null, cite);
-    el('strong', null, line, s.paper || 'Source');
+    el('strong', null, line, plain(s.paper) || 'Source');
     if (s.authors || s.year) line.appendChild(document.createTextNode(' — ' + [s.authors, s.year].filter(Boolean).join(', ')));
     if (s.section) { line.appendChild(document.createTextNode(' · ')); rich(el('span', null, line), s.section); }
     if (s.url) { var u = el('div', null, cite); el('code', null, u, s.url); }
@@ -802,11 +843,7 @@
   guard('explore', buildExplorations);
   guard('limits', buildLimits);
   guard('source', buildSource);
-  if (computeErr) {
-    var b = document.getElementById('calc-error');
-    b.hidden = false; b.textContent = 'The calculation code could not be loaded: ' + computeErr.message;
-  }
-  update();
+  guard('playground', update);
   guard('checks', buildChecks);
   document.body.setAttribute('data-ready', '1');
 })();

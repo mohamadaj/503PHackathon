@@ -1,0 +1,5 @@
+{
+  "title": "Minimal spec",
+  "controls": [{"id": "a", "type": "slider", "min": 0, "max": 1, "step": 0.1, "default": 0.5}],
+  "compute": "function compute(s) { return {values: {a: s.a}}; }"
+}
