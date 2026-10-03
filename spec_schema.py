@@ -25,8 +25,11 @@ import sys
 MAX_ERRORS = 15  # keep the revision prompt short
 
 CONTROL_TYPES = {"slider", "number", "toggle", "select", "vector", "matrix"}
-VISUAL_TYPES = {"readouts", "bar", "line", "heatmap", "table", "custom"}
-CHART_TYPES = {"bar", "line", "heatmap", "custom"}
+VISUAL_TYPES = {"readouts", "bar", "line", "scatter", "heatmap", "table", "vectors2d", "graph", "custom"}
+CHART_TYPES = {"bar", "line", "scatter", "heatmap", "vectors2d", "graph", "custom"}
+VECTOR_KINDS = {"vector", "points", "segment", "line"}
+LINE_STYLES = {"line", "points", "line+points", "stem", "dashed", "step"}
+AXIS_BOUNDS = ("x_min", "x_max", "y_min", "y_max")
 EXPLORATION_KINDS = {"guided", "limitation"}
 PATH_ROOTS = ("values", "series", "matrices", "tables", "state")
 ALLOWED_TAGS = {"b", "i", "em", "strong", "sub", "sup", "code", "br"}
@@ -141,6 +144,19 @@ def _check_path_or_number(c, where, value, controls):
     if _is_num(value):
         return
     _check_path(c, where, value, controls)
+
+
+def _markers(vis):
+    """(key, marker) for line/scatter markers: the 'markers' list plus the legacy single 'marker'."""
+    out = []
+    ms = vis.get("markers")
+    if isinstance(ms, list):
+        out += [(f"markers[{k}]", m) for k, m in enumerate(ms)]
+    elif ms is not None:
+        out.append(("markers", ms))
+    if "marker" in vis:
+        out.append(("marker", vis["marker"]))
+    return out
 
 
 def _check_labels(c, where, value, controls):
@@ -420,7 +436,7 @@ def _check_visuals(c, spec, controls):
                     continue
                 _check_path(c, wj, it.get("source"), controls)
                 c.text(it, "label", wj)
-        elif t in ("bar", "line"):
+        elif t in ("bar", "line", "scatter"):
             for j, s in enumerate(c.lst(vis, "series", w, min_len=1)):
                 wj = f"{w}.series[{j}]"
                 if not isinstance(s, dict):
@@ -428,25 +444,34 @@ def _check_visuals(c, spec, controls):
                     continue
                 _check_path(c, wj, s.get("source"), controls)
                 c.text(s, "label", wj)
+                if t != "bar":
+                    if "x_source" in s:
+                        _check_path(c, f"{wj}.x_source", s["x_source"], controls)
+                    if "style" in s and s["style"] not in LINE_STYLES:
+                        c.err(wj, f"'style' must be one of {json.dumps(sorted(LINE_STYLES))}, got {json.dumps(s['style'])}")
             c.text(vis, "x_label", w)
             c.text(vis, "y_label", w)
-            for k in ("y_min", "y_max"):
-                c.opt_num(vis, k, w)
-            if t == "bar" and "x_labels" in vis:
-                _check_labels(c, f"{w}.x_labels", vis["x_labels"], controls)
-            if t == "line":
-                if "x_source" not in vis:
-                    c.err(w, "line chart needs 'x_source' (path to the x values)")
-                else:
-                    _check_path(c, w, vis["x_source"], controls)
-                m = vis.get("marker")
-                if m is not None:
-                    if not isinstance(m, dict) or "x" not in m:
-                        c.err(f"{w}.marker", "must be an object with at least 'x'")
-                    else:
-                        _check_path_or_number(c, f"{w}.marker.x", m["x"], controls)
-                        if "y" in m:
-                            _check_path_or_number(c, f"{w}.marker.y", m["y"], controls)
+            if t == "bar":
+                for k in ("y_min", "y_max"):
+                    c.opt_num(vis, k, w)
+                if "x_labels" in vis:
+                    _check_labels(c, f"{w}.x_labels", vis["x_labels"], controls)
+            else:
+                # x_source is optional: shared x, per-series x_source, or the index 0, 1, 2, ...
+                if "x_source" in vis:
+                    _check_path(c, f"{w}.x_source", vis["x_source"], controls)
+                for k in AXIS_BOUNDS:  # numbers or paths
+                    if k in vis:
+                        _check_path_or_number(c, f"{w}.{k}", vis[k], controls)
+                if "y_log" in vis and not isinstance(vis["y_log"], bool):
+                    c.err(w, "'y_log' must be true or false")
+                for k, m in _markers(vis):
+                    if not isinstance(m, dict) or ("x" not in m and "y" not in m):
+                        c.err(f"{w}.{k}", "must be an object with 'x' and/or 'y' (numbers or paths) and an optional 'label'")
+                        continue
+                    for axis in ("x", "y"):
+                        if axis in m:
+                            _check_path_or_number(c, f"{w}.{k}.{axis}", m[axis], controls)
         elif t in ("heatmap", "table"):
             if "source" not in vis:
                 c.err(w, "missing 'source' path")
@@ -459,13 +484,42 @@ def _check_visuals(c, spec, controls):
                 d = vis.get("domain")
                 if d is not None and not (isinstance(d, list) and len(d) == 2 and all(_is_num(x) for x in d) and d[0] < d[1]):
                     c.err(w, "'domain' must be [lo, hi] with lo < hi")
+        elif t == "vectors2d":
+            for j, it in enumerate(c.lst(vis, "items", w, min_len=1)):
+                wj = f"{w}.items[{j}]"
+                if not isinstance(it, dict):
+                    c.err(wj, "must be an object {kind, source, label}")
+                    continue
+                if it.get("kind", "vector") not in VECTOR_KINDS:
+                    c.err(wj, f"'kind' must be one of {json.dumps(sorted(VECTOR_KINDS))}, got {json.dumps(it.get('kind'))}")
+                _check_path(c, wj, it.get("source"), controls)
+                if isinstance(it.get("from"), str):
+                    _check_path(c, f"{wj}.from", it["from"], controls)
+                if "point_labels" in it:
+                    _check_labels(c, f"{wj}.point_labels", it["point_labels"], controls)
+            if "range" in vis:
+                _check_path_or_number(c, f"{w}.range", vis["range"], controls)
+        elif t == "graph":
+            if "matrix" not in vis and "nodes" not in vis:
+                c.err(w, "graph needs 'matrix' (path to an n×n weight matrix) or 'nodes' (+ 'edges')")
+            if "matrix" in vis:
+                _check_path(c, f"{w}.matrix", vis["matrix"], controls)
+            for k in ("nodes", "edges"):  # literal lists (or a node count), or paths
+                if isinstance(vis.get(k), str):
+                    _check_path(c, f"{w}.{k}", vis[k], controls)
+            if "node_labels" in vis:
+                _check_labels(c, f"{w}.node_labels", vis["node_labels"], controls)
+            if "node_values" in vis:
+                _check_path(c, f"{w}.node_values", vis["node_values"], controls)
+            if "directed" in vis and not isinstance(vis["directed"], bool):
+                c.err(w, "'directed' must be true or false")
         elif t == "custom":
             if not (_is_num(vis.get("height")) and 40 <= vis["height"] <= 1200):
                 c.err(w, "'height' must be a number of pixels between 40 and 1200")
             _check_js_function(c, f"{w}.draw", vis.get("draw"), FORBIDDEN_DRAW)
 
     if visuals and not (types & CHART_TYPES):
-        c.err("visuals", "need at least one chart or diagram (bar, line, heatmap or custom), not only readouts and tables")
+        c.err("visuals", "need at least one chart or diagram (bar, line, scatter, heatmap, vectors2d, graph or custom), not only readouts and tables")
 
 
 def _check_explorations(c, spec, controls):
@@ -652,18 +706,25 @@ def referenced_paths(spec):
         if not isinstance(vis, dict):
             continue
         w = f"visuals[{i}]"
-        for k in ("source", "x_source", "x_labels", "row_labels", "col_labels"):
+        for k in ("source", "x_source", "x_labels", "row_labels", "col_labels",
+                  "range", "matrix", "nodes", "edges", "node_labels", "node_values", "highlight"):
             add(f"{w}.{k}", vis.get(k))
         for j, it in enumerate(vis.get("items") or []):
             if isinstance(it, dict):
                 add(f"{w}.items[{j}]", it.get("source"))
+                add(f"{w}.items[{j}].from", it.get("from"))
+                add(f"{w}.items[{j}].point_labels", it.get("point_labels"))
         for j, s in enumerate(vis.get("series") or []):
             if isinstance(s, dict):
                 add(f"{w}.series[{j}]", s.get("source"))
-        m = vis.get("marker")
-        if isinstance(m, dict):
-            add(f"{w}.marker.x", m.get("x"))
-            add(f"{w}.marker.y", m.get("y"))
+                add(f"{w}.series[{j}].x_source", s.get("x_source"))
+        if vis.get("type") in ("line", "scatter"):
+            for k in AXIS_BOUNDS:
+                add(f"{w}.{k}", vis.get(k))
+        for k, m in _markers(vis):
+            if isinstance(m, dict):
+                add(f"{w}.{k}.x", m.get("x"))
+                add(f"{w}.{k}.y", m.get("y"))
     for group in ("explorations", "tests"):
         for i, e in enumerate(spec.get(group) or []):
             if isinstance(e, dict):
