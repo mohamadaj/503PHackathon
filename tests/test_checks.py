@@ -222,6 +222,32 @@ def test_lint_and_notes_only_in_check_report():
     assert r["ok"] and any("ASCII math" in w for w in r["lint"]) and r["notes"]
 
 
+def test_expect_equals_string_uses_runtime_evalexpect():
+    s = golden("entropy")  # a status label in values, matched exactly (no tol) by B's evalExpect
+    s["compute"] = s["compute"].replace("var values = {", "var values = { status: raw > 0 ? 'ok' : 'empty', certain: H === 0,")
+    s["tests"][0]["expect"] = [{"source": "values.status", "equals": "ok"}, {"source": "values.certain", "equals": True}]
+    s["tests"][7]["expect"] = [{"source": "values.status", "equals": "empty", "tol": 0.5}]
+    assert run_all(copy.deepcopy(s)) == [], run_all(copy.deepcopy(s))
+    s["tests"][0]["expect"][0]["equals"] = "OK"   # exact match: case matters
+    s["tests"][0]["expect"][1]["equals"] = False
+    f = run_all(s)
+    expect_failure(f, "tests[0].expect[0]: failed: values.status = ok", "tests[0].expect[1]: failed")
+
+
+def test_validation_errors_do_not_skip_js_checks():
+    s = golden("entropy")
+    s["source"].pop("section")                          # a validation error ...
+    s["compute"] = s["compute"].replace("var w =", "if (state.n === 1) throw new Error('n too small'); var w =")
+    s["visuals"].append("not a visual")                 # ... and junk the checker must survive
+    r = check_report(s)
+    f = r["failures"]
+    expect_failure(f, "source: missing required string 'section'", "visuals[4]: must be an object")
+    expect_failure(f, "compute: threw Error: n too small")   # ... JS checks still ran
+    assert f.index("source: missing required string 'section'") < len(f) - 1  # validation errors come first
+    assert r["stats"]["internal_errors"] == [], r["stats"]["internal_errors"]
+    assert len(f) == len(set(f)) and run_all(s) == f
+
+
 # ---------------------------------------------------------------- controls
 
 def test_dead_controls():
@@ -300,7 +326,7 @@ def test_run_all_never_raises():
     with _patched(checks._Engine, "__init__", _boom) as err:  # the JS harness cannot even be built
         assert run_all(golden("entropy")) == []
         r = check_report(golden("entropy"))
-    assert "during setup" in err.getvalue() and r["stats"]["internal_errors"]
+    assert "setup: ZeroDivisionError" in err.getvalue() and r["stats"]["internal_errors"]
 
 
 def test_one_crashing_check_does_not_skip_the_others():
@@ -323,6 +349,13 @@ def test_no_internal_errors_on_golden_and_coverage_specs():
         name = os.path.basename(p)
         assert r["stats"].get("internal_errors") == [], (name, r["stats"].get("internal_errors"))
         assert r["failures"] == [], (name, r["failures"])
+
+
+def test_no_internal_errors_on_malformed_robustness_specs():
+    """JS checks now run even when validation fails, so junk input must be handled, not crash a check."""
+    for p in sorted(glob.glob(os.path.join(ROOT, "tests", "robustness", "*.json"))):
+        r = check_report(_load(os.path.relpath(p, ROOT)))
+        assert r["failures"] and r["stats"]["internal_errors"] == [], (os.path.basename(p), r["stats"]["internal_errors"])
 
 
 # ---------------------------------------------------------------- verify_quotes

@@ -56,44 +56,44 @@ RUNTIME_FUNCS = ("isNum", "fmt", "clamp", "deepCopy", "linScale", "isObj", "asAr
 # ---------------------------------------------------------------- public API
 
 def run_all(spec):
-    """Blocking failures for this spec. Validation errors first (then the JS is skipped)."""
-    try:
-        errors = spec_schema.validate(spec)
-        if errors:
-            return errors
-        if not ENGINE_OK:
-            _log("JS engine not available (pip install quickjs); only structural checks ran")
-            return []
-        # Each check runs in its own guard (see _JSChecks.guard); only a crash while setting up
-        # (validation or building the JS harness) can end up here.
-        return _JSChecks(spec).run()["failures"]
-    except Exception as e:  # noqa: BLE001  (A's request: never raise, never block on our own bugs)
-        _log(f"internal error during setup, no JS checks ran: {type(e).__name__}: {e}")
-        return []
+    """Blocking failures for this spec: validation errors, then JS failures (deduped). Never raises."""
+    return check_report(spec)["failures"]
 
 
 def check_report(spec):
     """Like run_all, for the trace: {"ok", "failures", "notes", "lint", "stats"}.
-    notes (runtime observations) and lint (spec_schema.lint warnings) never block and never
-    appear in run_all(), so they cannot trigger a revision."""
+    Validation errors do not skip the JS: if compute is a non-empty string the guarded JS checks run anyway,
+    so one revision can fix both kinds of problem. notes and lint never block and never appear in run_all()."""
+    errors, js, notes, stats, lint = [], [], [], {"internal_errors": []}, []
+    try:
+        errors = spec_schema.validate(spec, limit=None)
+    except Exception as e:  # noqa: BLE001
+        stats["internal_errors"].append(f"validate: {type(e).__name__}: {e}")
     try:
         lint = spec_schema.lint(spec)
-        errors = spec_schema.validate(spec)
-        if errors:
-            r = {"ok": False, "failures": errors, "notes": ["JS checks skipped: fix validation errors first"],
-                 "stats": {"internal_errors": []}}
-        elif not ENGINE_OK:
-            r = {"ok": True, "failures": [], "notes": ["JS engine not available; only structural checks ran"],
-                 "stats": {"internal_errors": []}}
-        else:
-            r = _JSChecks(spec).run()
-        r["lint"] = lint
-        return r
     except Exception as e:  # noqa: BLE001
-        msg = f"setup: {type(e).__name__}: {e}"
-        _log(f"internal error during setup, no JS checks ran: {msg}")
-        return {"ok": True, "failures": [], "notes": [f"checks.py internal error, no JS checks ran: {msg}"],
-                "lint": [], "stats": {"internal_errors": [msg]}}
+        stats["internal_errors"].append(f"lint: {type(e).__name__}: {e}")
+    code = spec.get("compute") if isinstance(spec, dict) else None
+    if not (isinstance(code, str) and code.strip()):
+        notes.append("JS checks skipped: no compute code")
+    elif not ENGINE_OK:
+        notes.append("JS engine not available (pip install quickjs); only structural checks ran")
+    else:
+        try:
+            r = _JSChecks(spec).run()
+            js, notes, stats = r["failures"], r["notes"], {**r["stats"], "internal_errors":
+                                                             stats["internal_errors"] + r["stats"]["internal_errors"]}
+        except Exception as e:  # noqa: BLE001  (setup crash: the guards inside cannot help)
+            stats["internal_errors"].append(f"setup: {type(e).__name__}: {e}")
+            notes.append(f"checks.py internal error, no JS checks ran: {type(e).__name__}: {e}")
+    for msg in stats["internal_errors"]:
+        _log(f"internal error: {msg}")
+    failures = list(dict.fromkeys(errors + [f for f in js if not f.startswith("... and ")]))
+    if len(failures) > MAX_FAILURES:
+        failures = failures[:MAX_FAILURES] + [f"... and {len(failures) - MAX_FAILURES} more failure(s); fix the ones above first"]
+    if errors:
+        notes.append(f"{len(errors)} validation error(s); JS checks ran anyway")
+    return {"ok": not failures, "failures": failures, "notes": notes, "lint": lint, "stats": stats}
 
 
 def verify_quotes(spec, excerpt):
@@ -177,7 +177,9 @@ _HARNESS = r"""
 "use strict";
 %(runtime)s
 
-var spec = normalize(JSON.parse(%(spec_json)s));
+var __RAW = JSON.parse(%(spec_json)s);
+var __visuals = Array.isArray(__RAW.visuals) ? __RAW.visuals : [];  // raw list: indexes match visuals[i] in messages
+var spec = normalize(__RAW);
 var controls = spec.controls;
 var byId = {};
 controls.forEach(function (c) { if (c && c.id) byId[c.id] = c; });
@@ -298,7 +300,7 @@ function __stub() {
 var document = __stub();
 
 function __draw(i) {
-  var v = spec.visuals[i];
+  var v = __visuals[i];
   if (!(i in __draws)) { try { __draws[i] = compileFn(v.draw, 'draw()'); } catch (e) { __draws[i] = { compileError: __err(e) }; } }
   var f = __draws[i];
   if (f.compileError) return JSON.stringify({ error: 'could not be compiled: ' + f.compileError });
@@ -407,9 +409,12 @@ class _JSChecks:
         self.timeouts = 0
         self.stopped = False
         self.stats = {"states": {}, "expects_passed": 0, "expects_total": 0, "draw_calls": 0}
-        self.customs = [i for i, v in enumerate(spec.get("visuals") or []) if isinstance(v, dict) and v.get("type") == "custom"]
-        self.readout_keys = {it["source"].split(".")[1] for v in spec.get("visuals") or [] if v.get("type") == "readouts"
-                             for it in v.get("items") or [] if str(it.get("source", "")).startswith("values.")}
+        visuals = spec.get("visuals") if isinstance(spec.get("visuals"), list) else []
+        self.customs = [i for i, v in enumerate(visuals) if isinstance(v, dict) and v.get("type") == "custom"]
+        self.readout_keys = {it["source"].split(".")[1] for v in visuals if isinstance(v, dict) and v.get("type") == "readouts"
+                             for it in (v.get("items") if isinstance(v.get("items"), list) else [])
+                             if isinstance(it, dict) and isinstance(it.get("source"), str)
+                             and re.match(r"values\.[^.]+", it["source"])}
         self.warned_notes = set()
         self.shown_paths = _displayed_value_paths(spec)
         self.js = _Engine(spec)
@@ -556,7 +561,10 @@ class _JSChecks:
                 self.guard(f"{group}[{i}]", self.check_item, group, i, item)
         # 3. fuzz one control at a time, and find controls that change nothing
         outputs = {}
-        for c in self.spec.get("controls") or []:
+        controls = self.spec.get("controls") if isinstance(self.spec.get("controls"), list) else []
+        for c in controls:
+            if not (isinstance(c, dict) and isinstance(c.get("id"), str)):
+                continue  # already a validation error
             outputs[c["id"]] = {base["out"]}
             for value in self.guard(f"fuzz values for {c['id']}", _fuzz_values, c) or []:
                 if not self.budget_left():
@@ -594,6 +602,8 @@ class _JSChecks:
                 self.fail(f"{pr['where']}: {pr['path']} is {_short(pr['got'], 80)}, but this needs {_KIND_TEXT[pr['kind']]}")
 
     def check_item(self, group, i, item):
+        if not isinstance(item, dict):
+            return  # already a validation error
         label = f"for the state of {group}[{i}]"
         paths = [e["source"] for e in item.get("expect") or []
                  if isinstance(e, dict) and isinstance(e.get("source"), str) and not e["source"].startswith("state.")]
@@ -690,7 +700,7 @@ def _fuzz_values(c):
     """Values to try for one control (one at a time, others at defaults). Never all-zero vectors."""
     t, d = c.get("type"), c.get("default")
     if t == "slider":
-        return [x for x in (c["min"], c["max"]) if x != d]
+        return [x for x in (c.get("min"), c.get("max")) if _is_num(x) and x != d]
     if t == "number":
         vals = [c[k] for k in ("min", "max") if _is_num(c.get(k)) and c[k] != d]
         step = c.get("step") if _is_num(c.get("step")) and c.get("step") > 0 else 1
