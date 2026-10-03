@@ -67,7 +67,11 @@ CASES = [
     ("path is a bare word", "entropy", lambda s: s["visuals"][0]["items"][0].update(source="H"), ["not a valid path"]),
     ("state path to missing control", "entropy", lambda s: s["visuals"][2]["marker"].update(x="state.m"), ["no control with id 'm'"]),
     ("bad labels", "attention", lambda s: s["visuals"][1].update(row_labels="query"), ["template containing {i}"]),
-    ("line without x_source", "entropy", lambda s: s["visuals"][2].pop("x_source"), ["needs 'x_source'"]),
+    ("bad line style", "entropy", lambda s: s["visuals"][2]["series"][0].update(style="solid"), ["'style' must be one of"]),
+    ("series x_source bad root", "entropy", lambda s: s["visuals"][2]["series"][0].update(x_source="out.x"), ["must start with one of"]),
+    ("axis bound not a path", "entropy", lambda s: s["visuals"][2].update(y_max="H"), ["not a valid path"]),
+    ("marker without x or y", "entropy", lambda s: s["visuals"][2].update(markers=[{"label": "here"}]), ["'x' and/or 'y'"]),
+    ("y_log not bool", "entropy", lambda s: s["visuals"][2].update(y_log="yes"), ["'y_log' must be true or false"]),
     ("custom without height", "conv1d", lambda s: s["visuals"][1].pop("height"), ["'height' must be"]),
     ("three explorations", "entropy", lambda s: s["explorations"].append(copy.deepcopy(s["explorations"][0])), ["exactly 2 explorations, got 3"]),
     ("no limitation", "entropy", lambda s: s["explorations"][1].update(kind="guided"), ["kind \"limitation\""]),
@@ -163,6 +167,25 @@ def test_referenced_paths():
     assert paths["visuals[0].items[0]"] == "values.H"
     assert paths["visuals[2].marker.x"] == "values.n"
     assert "visuals[1].x_labels" in paths
+
+
+def test_line_and_scatter_contract_features():
+    """Contract: x_source optional, per-series x_source/style, axis bounds as paths, markers list, scatter."""
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    line = spec["visuals"][2]
+    line.pop("x_source")
+    line.pop("marker")
+    line["series"][0].update(x_source="series.ns", style="line+points")
+    line.update(y_max="values.H_max", y_log=False, markers=[{"x": "values.n"}, {"y": 1, "label": "1 bit"}])
+    spec["visuals"].append({"type": "scatter", "title": "p vs i", "x_label": "i", "y_label": "p",
+                            "series": [{"source": "series.p", "label": "p"}]})
+    assert validate(spec) == [], validate(spec)
+    paths = dict(referenced_paths(spec))
+    assert paths["visuals[2].series[0].x_source"] == "series.ns"
+    assert paths["visuals[2].y_max"] == "values.H_max"
+    assert paths["visuals[2].markers[0].x"] == "values.n"
+    assert "visuals[2].markers[1].y" not in paths  # a plain number is not a path
+    assert paths["visuals[4].series[0]"] == "series.p"
 
 
 if __name__ == "__main__":
