@@ -19,6 +19,10 @@ API_URL = BASE_URL + "/chat/completions"
 # The graded run uses the DEFAULT, so set the default to whatever wins in testing.
 REASONING_EFFORT = os.environ.get("AGENT_REASONING", "disabled").strip().lower()
 
+# Latency is scored: ask OpenRouter to route to the highest-throughput provider of this model.
+# AGENT_PROVIDER_SORT=off disables it (e.g. if a model/provider rejects the field).
+PROVIDER_SORT = os.environ.get("AGENT_PROVIDER_SORT", "throughput").strip().lower()
+
 RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
 
 
@@ -40,6 +44,7 @@ class LLM:
         self.model = model
         self.tracer = tracer
         self.send_reasoning = REASONING_EFFORT not in ("off", "none", "")
+        self.send_provider = PROVIDER_SORT not in ("off", "none", "")
 
     def _body(self, messages, max_tokens, temperature):
         body = {
@@ -53,6 +58,8 @@ class LLM:
                 body["reasoning"] = {"enabled": False}   # no thinking tokens at all
             else:
                 body["reasoning"] = {"effort": REASONING_EFFORT, "exclude": True}
+        if self.send_provider:
+            body["provider"] = {"sort": PROVIDER_SORT}
         return body
 
     def chat(self, messages, max_tokens, stage, temperature=0.2, attempts=2):
@@ -105,6 +112,10 @@ class LLM:
                 if r.status_code == 400 and self.send_reasoning and "reason" in msg.lower():
                     self.send_reasoning = False
                     tr.log(stage, "config", "reasoning_param_disabled")
+                    continue
+                if r.status_code == 400 and self.send_provider and "provider" in msg.lower():
+                    self.send_provider = False
+                    tr.log(stage, "config", "provider_sort_disabled")
                     continue
                 if r.status_code in RETRYABLE_STATUS or r.status_code == 200:
                     if attempt < attempts:
