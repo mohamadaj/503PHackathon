@@ -1,0 +1,86 @@
+You design a small interactive explainer ("playground") that teaches ONE mechanism from a research paper to the audience below. You do NOT write HTML. You write a JSON spec plus JavaScript; a fixed template turns them into the page.
+
+## Case
+Source: {{source_url}}
+Audience: {{audience}}
+Focus (the page MUST deliver every learning outcome and every check listed here):
+{{focus}}
+
+Other case fields:
+{{extra}}
+
+Paper excerpt (source of truth; prefer it over memory):
+<<<
+{{excerpt}}
+>>>
+
+## Rules
+- Correctness first. No invented numbers, results, sections or equations. If unsure, say less.
+- Toy sizes: vectors up to ~8, matrices up to 4x5. 2-6 controls.
+- Prose fields may use only <b> <i> <sub> <sup> <code> <br>. Math in Unicode, e.g. H = −Σ p<sub>i</sub> log<sub>2</sub> p<sub>i</sub>. No LaTeX, no Markdown.
+- Define every symbol. Short sentences for the audience.
+- source.supported: only claims the excerpt states, each with a SHORT quote copied VERBATIM from the excerpt. Anything you chose (units, log base, sizes, examples, presets) goes in source.simplifications. Never imply the demo reproduces the paper's results.
+- Exactly 2 explorations: the first kind "guided", the second kind "limitation" (a limitation, assumption or common misconception). Each has a concrete state, what to change, what to observe (with numbers), why, and expect checks.
+- tests: 4-7, covering every check named in the focus plus edge cases (zeros, n = 1, extremes). Expected values must follow from the paper's math. Express invariants (e.g. rows sum to 1) as error values in compute and test them with "max".
+- compute(state) is pure ES2017: no DOM, no randomness, no globals. It must never throw and never return NaN/Infinity for any value the controls allow (guard logs of 0, division by 0, empty arrays). If a result is genuinely undefined for the current inputs (e.g. all weights 0), leave that key out of values and return a top-level "warning": "short reason" instead.
+- Visual sources are dotted paths into compute's output (values.H, series.p, matrices.A, tables.t, matrices.A.0) or state.<id>.
+- Explorations' "change" text must name the real control labels and values the learner should set.
+- compute returns only keys that visuals, tests or explorations use.
+- Compact output: write the JSON minified (no indentation, no line breaks inside it). No commentary outside the two blocks.
+
+## Output: exactly these two fenced blocks
+
+```json
+{
+  "title": "short concept name",
+  "subtitle": "one-line hook (rich)",
+  "intro": {
+    "idea": "what it is (rich)", "why": "why it matters (rich)",
+    "steps": ["how the mechanism works, step by step (rich)"],
+    "symbols": [{"symbol": "p<sub>i</sub>", "meaning": "...", "unit": "..."}]
+  },
+  "controls": [
+    {"id": "n", "type": "slider", "label": "...", "min": 1, "max": 8, "step": 1, "default": 4},
+    {"id": "p", "type": "vector", "label": "...", "length_from": "n", "default": [0.5, 0.25, 0.125, 0.125], "fill": 0, "min": 0, "step": 0.05, "item_labels": "x{i}", "normalize": true},
+    {"id": "M", "type": "matrix", "label": "...", "rows_from": "n", "cols": 2, "default": [[1, 0]], "fill": 0, "step": 0.5, "row_labels": "r{i}", "col_labels": "c{i}"},
+    {"id": "on", "type": "toggle", "label": "...", "default": true},
+    {"id": "mode", "type": "select", "label": "...", "options": [{"value": "a", "label": "..."}], "default": "a"},
+    {"id": "x", "type": "number", "label": "...", "min": 0, "max": 10, "step": 0.1, "default": 1}
+  ],
+  "presets": [{"label": "...", "state": {"n": 4, "p": [1, 0, 0, 0]}}],
+  "compute": "SEE_JS_BLOCK",
+  "visuals": [
+    {"type": "readouts", "title": "...", "items": [{"source": "values.H", "label": "...", "unit": "bits", "digits": 3}]},
+    {"type": "bar", "title": "...", "caption": "what to look at", "series": [{"source": "series.p", "label": "..."}], "x_labels": "series.labels", "x_label": "...", "y_label": "..."},
+    {"type": "line", "title": "...", "x_source": "series.xs", "series": [{"source": "series.ys", "label": "..."}], "x_label": "...", "y_label": "...", "marker": {"x": "values.n", "y": "values.H", "label": "you"}},
+    {"type": "heatmap", "title": "...", "source": "matrices.A", "row_labels": "q{i}", "col_labels": "k{i}", "digits": 2, "row_sums": true},
+    {"type": "table", "title": "...", "source": "tables.t", "digits": 3}
+  ],
+  "explorations": [
+    {"title": "...", "kind": "guided", "state": {"n": 4, "p": [1, 0, 0, 0]}, "change": "...", "observe": "...", "why": "...", "expect": [{"source": "values.H", "equals": 0, "tol": 1e-6}]},
+    {"title": "...", "kind": "limitation", "state": {}, "change": "...", "observe": "...", "why": "...", "expect": [{"source": "values.H", "min": 0}]}
+  ],
+  "limitations": ["assumptions and simplifications of this demo (rich)"],
+  "tests": [{"name": "...", "state": {"n": 4, "p": [1, 1, 1, 1]}, "expect": [{"source": "values.H", "equals": 2, "tol": 1e-6}]}],
+  "source": {
+    "paper": "...", "authors": "...", "year": "...", "section": "...", "equation": "rich",
+    "supported": [{"claim": "rich", "quote": "verbatim from the excerpt"}],
+    "simplifications": ["rich"]
+  }
+}
+```
+
+```js
+function compute(state) {
+  // state: one key per control id (vectors/matrices already resized)
+  return {
+    values:   { H: 2 },                                  // scalars: readouts, tests
+    series:   { p: [0.25, 0.25], labels: ["x1", "x2"] }, // arrays: bar/line
+    matrices: { A: [[0.5, 0.5]] },                       // 2-D: heatmaps
+    tables:   { t: { cols: ["i", "p"], rows: [[1, 0.25]] } }
+    // warning: "only when a value is undefined for these inputs"
+  };
+}
+```
+
+Use only the control and visual types shown. Include at least one bar, line or heatmap visual. Only include the control types you need.

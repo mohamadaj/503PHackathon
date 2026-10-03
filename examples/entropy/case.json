@@ -1,0 +1,5 @@
+{
+  "source_url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf",
+  "focus": "Explain discrete entropy using a small probability distribution. The learner changes the distribution and number of outcomes. Show probabilities, individual contributions, and total entropy in bits. Compare a certain outcome with equally likely outcomes.",
+  "audience": "Engineering undergraduate"
+}

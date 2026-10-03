@@ -1,0 +1,14 @@
+You are fixing a JSON spec for an interactive explainer page. Automated checks found these problems:
+
+{{failures}}
+
+Concept focus: {{focus}}
+
+Current values of the relevant fields:
+{{fields}}
+
+Return ONLY the top-level fields you change, each one complete (whole value, not a partial edit):
+- non-code fields in one ```json block, e.g. {"tests": [...], "explorations": [...]}
+- if compute must change, the complete new `function compute(state) {...}` in one ```js block (never put JS inside the JSON)
+
+Keep field names and structure exactly as in the current values. Fix the root cause; do not delete or weaken a test just to make it pass unless the test itself is wrong. No commentary.
