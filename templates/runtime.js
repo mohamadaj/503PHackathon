@@ -738,6 +738,7 @@
       var tbl = el('table', null, wrap);
       var cols = t.cols || [];
       var numericCol = cols.map(function (_, j) { return t.rows.every(function (r) { return typeof r[j] === 'number'; }); });
+      var intCol = cols.map(function (_, j) { return t.rows.every(function (r) { return !Array.isArray(r) || typeof r[j] !== 'number' || (Number.isInteger(r[j]) && Math.abs(r[j]) < 1e6); }); });
       var hr = el('tr', null, el('thead', null, tbl));
       cols.forEach(function (c, j) { rich(el('th', { class: numericCol[j] ? 'num' : '' }, hr), c); });
       var tb = el('tbody', null, tbl);
@@ -745,7 +746,7 @@
         var tr = el('tr', null, tb);
         (Array.isArray(r) ? r : [r]).forEach(function (x, j) {
           var td = el('td', { class: typeof x === 'number' ? 'num' : '' }, tr);
-          if (typeof x === 'number') td.textContent = fmt(x, v.digits); else rich(td, x);
+          if (typeof x === 'number') td.textContent = fmt(x, intCol[j] ? 0 : v.digits); else rich(td, x);
         });
       });
     },

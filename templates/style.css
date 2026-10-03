@@ -47,7 +47,8 @@ sub, sup { font-size: .72em; }
 
 table { border-collapse: collapse; width: 100%; font-size: .93rem; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+th { color: var(--muted); font-weight: 600; font-size: .86rem; }
+.symtab th { font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
 td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .symtab td:first-child { width: 7.5rem; font-size: 1.05rem; }
 .table-wrap { overflow-x: auto; }
