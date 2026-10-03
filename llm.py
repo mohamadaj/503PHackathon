@@ -46,23 +46,24 @@ class LLM:
         self.send_reasoning = REASONING_EFFORT not in ("off", "none", "")
         self.send_provider = PROVIDER_SORT not in ("off", "none", "")
 
-    def _body(self, messages, max_tokens, temperature):
+    def _body(self, messages, max_tokens, temperature, reasoning=None):
         body = {
             "model": self.model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        effort = reasoning or REASONING_EFFORT
         if self.send_reasoning:
-            if REASONING_EFFORT in ("disabled", "false", "0"):
+            if effort in ("disabled", "false", "0"):
                 body["reasoning"] = {"enabled": False}   # no thinking tokens at all
             else:
-                body["reasoning"] = {"effort": REASONING_EFFORT, "exclude": True}
+                body["reasoning"] = {"effort": effort, "exclude": True}
         if self.send_provider:
             body["provider"] = {"sort": PROVIDER_SORT}
         return body
 
-    def chat(self, messages, max_tokens, stage, temperature=0.2, attempts=2):
+    def chat(self, messages, max_tokens, stage, temperature=0.2, attempts=2, reasoning=None):
         tr = self.tracer
         for attempt in range(1, attempts + 1):
             ok, why = tr.can_call()
@@ -83,7 +84,7 @@ class LLM:
                         "Content-Type": "application/json",
                         "X-Title": "Paper to Playground agent",
                     },
-                    json=self._body(messages, mt, temperature),
+                    json=self._body(messages, mt, temperature, reasoning),
                     timeout=timeout,
                 )
             except requests.RequestException as e:

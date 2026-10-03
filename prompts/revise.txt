@@ -11,4 +11,4 @@ Return ONLY the top-level fields you change, each one complete (whole value, not
 - non-code fields in one ```json block, e.g. {"tests": [...], "explorations": [...]}
 - if compute must change, the complete new `function compute(state) {...}` in one ```js block (never put JS inside the JSON)
 
-Keep field names and structure exactly as in the current values. Fix the root cause; do not delete or weaken a test just to make it pass unless the test itself is wrong. No commentary.
+Keep field names and structure exactly as in the current values. Each failure shows the value compute actually returned. Work out which side is wrong: if the test follows from the math, fix compute (e.g. a threshold, sign, off-by-one or normalization); if the test's expected value is mathematically wrong, fix the test. Never delete or weaken a correct test just to make it pass. No commentary.

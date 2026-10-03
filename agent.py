@@ -24,7 +24,7 @@ REQUIRED_FIELDS = ("source_url", "focus", "audience")
 EXCERPT_KEYS = ("excerpt", "text", "source_text", "content", "paper_excerpt", "context")
 EXCERPT_BUDGET_CHARS = 6000   # ~1.5k tokens; relevant parts only (see compress.py)
 GEN_MAX_TOKENS = 12000
-REV_MAX_TOKENS = 5000
+REV_MAX_TOKENS = 7000   # includes low-effort reasoning tokens
 MAX_REVISIONS = 2
 
 DEBUG_DIR = None  # set to the output dir when AGENT_DEBUG is on (dev only)
@@ -411,7 +411,9 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
                       fields=json.dumps(fields, ensure_ascii=False, indent=1))
         tr.log("revise", "request_patch", "sent", revision=rnd,
                fixing=fails[:20], fields_sent=sorted(fields.keys()))
-        res = llm.chat([{"role": "user", "content": prompt}], REV_MAX_TOKENS, stage="revise")
+        # Debugging a failed check benefits from a little thinking; first generation stays fast.
+        res = llm.chat([{"role": "user", "content": prompt}], REV_MAX_TOKENS, stage="revise",
+                       reasoning=os.environ.get("AGENT_REVISE_REASONING", "low"))
         if res is None:
             break
         save_raw(f"revise_{rnd}", res.text)
