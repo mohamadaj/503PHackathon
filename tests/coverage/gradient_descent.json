@@ -263,6 +263,7 @@
     "supported": [],
     "simplifications": [
       "Template coverage test: per-series x, fixed axes with clipping, markers."
-    ]
+    ],
+    "url": "https://example.org/coverage-test"
   }
 }
