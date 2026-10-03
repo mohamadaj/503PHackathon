@@ -137,7 +137,7 @@ The SVG is cleared before every call. Errors are contained to that card.
   "expect": [{"source": "values.H", "equals": 2, "tol": 1e-6}] }
 ```
 `state` is merged over the defaults (then vectors/matrices resized). Each expectation uses
-`equals` (+ `tol`, default 1e-6) and/or `min` / `max`. Tests should cover the checks named in
+`equals` (a number with `tol`, default 1e-6; or a string/boolean, matched exactly, e.g. a `values.status` label) and/or `min` / `max`. Tests should cover the checks named in
 the brief. Invariants (rows sum to 1, output = weighted sum) are exposed as `values.*` errors and
 tested with `max`.
 
