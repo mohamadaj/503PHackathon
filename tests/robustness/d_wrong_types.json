@@ -1,0 +1,13 @@
+{
+  "title": 42,
+  "subtitle": ["array"],
+  "intro": "just a string",
+  "controls": {"a": 1},
+  "presets": "nope",
+  "compute": 5,
+  "visuals": "bar",
+  "explorations": {"x": 1},
+  "limitations": [1, null, {"a": 1}],
+  "tests": null,
+  "source": "Shannon 1948"
+}

@@ -1,0 +1,53 @@
+{
+  "title": "Messy <img src=x onerror=\"document.body.setAttribute('data-pwned','title')\"> spec",
+  "subtitle": "</script><script>document.body.setAttribute('data-pwned','script')</script> plus a<b and x > y & z",
+  "audience": "Engineering undergraduate",
+  "intro": {
+    "idea": "Inline <b onclick=\"document.body.setAttribute('data-pwned','onclick')\">bold</b>, <a href=\"javascript:alert(1)\">link</a>, <sub>i</sub>, <style>body{display:none}</style>visible.",
+    "why": null,
+    "steps": "not an array",
+    "symbols": [{"symbol": "x"}, null, "loose string", {"symbol": "p<sub>i</sub>", "meaning": "prob", "unit": 3}]
+  },
+  "controls": [
+    null,
+    {"type": "slider", "label": "no id"},
+    {"id": "a", "type": "slider", "label": "a (default above max)", "min": 0, "max": 10, "step": 1, "default": 50},
+    {"id": "b", "type": "number", "label": "b (string default)", "default": "3"},
+    {"id": "m", "type": "select", "label": "select without options"},
+    {"id": "k", "type": "knob", "label": "unknown control type"},
+    {"id": "v", "type": "vector", "label": "vector, no default, bad length_from", "length_from": "missing_ctrl"},
+    {"id": "M", "type": "matrix", "label": "ragged matrix", "default": [[1, 2], [3]]},
+    {"id": "big", "type": "slider", "label": "no min/max", "default": 5}
+  ],
+  "presets": [null, {"label": "no state"}, {"label": "unknown key", "state": {"zzz": 1, "a": "7"}}],
+  "compute": "function compute(state) {\n  return {\n    values: {good: state.a + state.b, nan: NaN, inf: Infinity, str: 'hello', nul: null},\n    series: {s: [1, '2', null, NaN, -3], x5: [0, 1, 2, 3, 4], y3: [1, 4, 9], empty: [], zeros: [0, 0, 0]},\n    matrices: {rag: [[1, 2, 3], [4], [NaN, -1, 2]], one: [[7]]},\n    tables: {t: {cols: ['x', 'y'], rows: [[1, 'a'], ['b<sub>2</sub>', null], [NaN]]}}\n  };\n}",
+  "visuals": [
+    null,
+    {"type": "readouts", "title": "readouts incl. NaN/missing", "items": [{"source": "values.good", "label": "good"}, {"source": "values.nan", "label": "nan"}, {"source": "values.inf", "label": "inf"}, {"source": "values.str", "label": "str"}, {"source": "values.nope", "label": "missing path"}]},
+    {"type": "bar", "title": "bar with typo path", "series": [{"source": "series.typo", "label": "typo"}]},
+    {"type": "bar", "title": "bar with mixed junk values", "series": [{"source": "series.s", "label": "s"}], "x_labels": ["one", "two"]},
+    {"type": "bar", "title": "bar all zeros", "series": [{"source": "series.zeros", "label": "z"}]},
+    {"type": "bar", "title": "bar empty", "series": [{"source": "series.empty", "label": "e"}]},
+    {"type": "bar", "title": "bar no series"},
+    {"type": "line", "title": "line with length mismatch", "x_source": "series.x5", "series": [{"source": "series.y3", "label": "y"}], "marker": {"x": "values.nan"}},
+    {"type": "line", "title": "line bad x", "x_source": "series.empty", "series": [{"source": "series.y3", "label": "y"}]},
+    {"type": "heatmap", "title": "ragged heatmap with NaN and negatives", "source": "matrices.rag", "row_sums": true},
+    {"type": "heatmap", "title": "1x1 heatmap", "source": "matrices.one"},
+    {"type": "heatmap", "title": "heatmap bad path", "source": "matrices.none"},
+    {"type": "table", "title": "table with junk", "source": "tables.t"},
+    {"type": "table", "title": "table bad path", "source": "tables.none"},
+    {"type": "pie", "title": "unknown visual type"},
+    {"type": "custom", "title": "custom that throws", "draw": "function draw(svg, state, out, h) { throw new Error('boom'); }"},
+    {"type": "custom", "title": "custom syntax error", "draw": "function draw(svg { }"},
+    {"type": "custom", "title": "custom missing draw"},
+    {"type": "custom", "title": "custom that works", "height": 60, "draw": "function draw(svg, state, out, h) { h.text(10, 30, 'custom ok: a = ' + state.a); }"}
+  ],
+  "explorations": [
+    {"title": "unknown control in state, bad expect path", "kind": "guided", "state": {"nope": 1}, "change": "c", "observe": "o", "why": "w", "expect": [{"source": "values.nope", "equals": 1}]},
+    {"title": "no state, weird kind", "kind": "banana", "change": "c"},
+    {"title": "third exploration", "kind": "limitation", "state": "not an object", "expect": "not an array"}
+  ],
+  "limitations": "a single string instead of a list",
+  "tests": [{"name": "expect not array", "state": {}, "expect": "x"}, null, {"name": "real pass", "state": {"a": 2, "b": 3}, "expect": [{"source": "values.good", "equals": 5}]}],
+  "source": {"paper": "Paper <script>document.body.setAttribute('data-pwned','src')</script>", "supported": ["plain string claim", {"claim": "obj claim"}, null], "simplifications": "one string"}
+}

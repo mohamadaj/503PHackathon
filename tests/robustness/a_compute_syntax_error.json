@@ -1,0 +1,19 @@
+{
+  "title": "Broken compute (syntax error)",
+  "intro": {"idea": "The compute string does not parse.", "why": "Text, explorations and grounding must still show.",
+            "symbols": [{"symbol": "a", "meaning": "a number", "unit": ""}]},
+  "controls": [
+    {"id": "a", "type": "slider", "label": "a", "min": 0, "max": 10, "step": 1, "default": 3},
+    {"id": "on", "type": "toggle", "label": "switch", "default": true}
+  ],
+  "compute": "function compute(state) { return {values: {x: state.a * }; }",
+  "visuals": [{"type": "readouts", "title": "x", "items": [{"source": "values.x", "label": "x"}]},
+              {"type": "bar", "title": "bars", "series": [{"source": "series.s", "label": "s"}]}],
+  "explorations": [
+    {"title": "One", "kind": "guided", "state": {"a": 1}, "change": "c", "observe": "o", "why": "w", "expect": [{"source": "values.x", "equals": 1}]},
+    {"title": "Two", "kind": "limitation", "change": "c", "observe": "o", "why": "w"}
+  ],
+  "limitations": ["still visible"],
+  "tests": [{"name": "t", "state": {}, "expect": [{"source": "values.x", "equals": 0}]}],
+  "source": {"paper": "Some Paper", "year": "2000", "section": "Sec 1", "supported": [{"claim": "c", "quote": "q"}], "simplifications": ["s"]}
+}
