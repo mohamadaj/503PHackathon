@@ -1,0 +1,6 @@
+{
+  "source_url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf",
+  "title": "A Mathematical Theory of Communication (C. E. Shannon, 1948)",
+  "focus": "Explain discrete entropy (Part I, Section 6) using a small probability distribution. Let the learner change the distribution and the number of outcomes. Show the probabilities, each outcome's contribution and the total entropy in bits. Compare a certain outcome with equally likely outcomes. Check that certainty gives zero bits and four equally likely outcomes give two bits; handle zero probabilities correctly.",
+  "audience": "Engineering undergraduate"
+}
