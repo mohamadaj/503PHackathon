@@ -72,8 +72,8 @@ class _VisibleText(HTMLParser):
             self.out.append(f" [{a.get('aria-label') or a.get('type')}: {a['value']}] ")
         if tag == "select":
             self.out.append(" [select] ")
-        if tag in ("sub", "sup"):  # keep the formatting visible to the grader (θ<sup>2</sup> -> θ^(2))
-            self.out.append("_(" if tag == "sub" else "^(")
+        if tag in ("sub", "sup"):  # keep the formatting visible to the grader: θ<sup>2</sup> -> θ², else θ^(…)
+            self.out.append("\x00" + tag + "\x01")
 
     def handle_endtag(self, tag):
         if self.skip:
@@ -82,7 +82,9 @@ class _VisibleText(HTMLParser):
         if tag in ("td", "th"):  # keep table columns apart, or the grader misreads them
             self.out.append(" | ")
         elif tag in ("sub", "sup"):
-            self.out.append(")")
+            self.out.append("\x02")
+        elif tag == "span":  # chips and inline pieces are separated by CSS on the page
+            self.out.append(" ")
         elif tag in self.BLOCK:
             self.out.append("\n")
 
@@ -91,8 +93,20 @@ class _VisibleText(HTMLParser):
             self.out.append(data)
 
     def text(self):
-        t = re.sub(r"[ \t]+", " ", "".join(self.out))
+        t = "".join(self.out)
+        while "\x00" in t:  # innermost first, so nested d<sub>model</sub> inside a <sup> works
+            t = re.sub(r"\x00(sub|sup)\x01([^\x00\x02]*)\x02", _sub_sup, t)
+        t = re.sub(r"[ \t]+", " ", t)
         return re.sub(r"\n\s*\n+", "\n", t).strip()
+
+
+def _sub_sup(m):
+    """Unicode sub/superscript when every character has one (pᵢ, x², QKᵀ), else _(…) / ^(…)."""
+    from spec_schema import _UNI
+    table, body = _UNI[m.group(1)], m.group(2)
+    if body and all(ch in table for ch in body):
+        return "".join(table[ch] for ch in body)
+    return ("_(" if m.group(1) == "sub" else "^(") + body + ")"
 
 
 def page_evidence(html_path):
