@@ -153,3 +153,11 @@ blockquote { margin: 4px 0 0; padding-left: 10px; border-left: 2px solid var(--p
 
 .boot-error { max-width: 900px; margin: 20px auto; padding: 12px; background: #fdeceb; color: #b42318; border-radius: 8px; }
 .foot { color: var(--muted); font-size: .85rem; padding-top: 6px; padding-bottom: 30px; }
+
+/* Scrollbars that follow the theme (Firefox + Chromium/Safari) */
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+::-webkit-scrollbar-corner { background: transparent; }

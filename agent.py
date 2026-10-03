@@ -214,6 +214,44 @@ def local_repairs(spec):
     return fixes
 
 
+_BROKEN_AT = re.compile(r"when ([A-Za-z_$][\w$]*) = (-?\d+(?:\.\d+)?) \(others at defaults\)")
+
+
+def narrow_ranges(spec, fails):
+    """Last resort after revisions: if compute breaks (NaN / throws) only at a slider's end value
+    that no test/exploration/preset uses, move that end inward so the learner cannot reach it."""
+    fixes = []
+    ctrls = {c.get("id"): c for c in spec.get("controls") or []
+             if isinstance(c, dict) and c.get("type") in ("slider", "number")}
+    used = {}
+    for group in ("tests", "explorations", "presets"):
+        for item in spec.get(group) or []:
+            if isinstance(item, dict) and isinstance(item.get("state"), dict):
+                for k, v in item["state"].items():
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        used.setdefault(k, set()).add(float(v))
+    for f in fails:
+        if not f.startswith("compute:") or not any(w in f for w in ("non-finite", "threw", "NaN")):
+            continue
+        for cid, val in _BROKEN_AT.findall(f):
+            c = ctrls.get(cid)
+            if c is None:
+                continue
+            v = float(val)
+            lo, hi, step = c.get("min"), c.get("max"), c.get("step") or 1
+            if not all(isinstance(x, (int, float)) for x in (lo, hi, step)) or lo >= hi:
+                continue
+            if v in used.get(cid, set()) or c.get("default") == v:
+                continue
+            if v >= hi and hi - step > lo:
+                c["max"] = hi - step
+                fixes.append(f"controls[{cid}]: max {hi} -> {hi - step} (compute breaks at {cid} = {val})")
+            elif v <= lo and lo + step < hi:
+                c["min"] = lo + step
+                fixes.append(f"controls[{cid}]: min {lo} -> {lo + step} (compute breaks at {cid} = {val})")
+    return fixes
+
+
 def run_checks(spec, case, tr, label):
     """Shape (spec_schema.py, B) + behaviour (checks.py, C). Falls back to core_checks."""
     warns = []
@@ -478,6 +516,14 @@ def run(args, tr):
     normalize(spec, case, has_excerpt)
     fails = run_checks(spec, case, tr, label="initial")
     spec, fails = revise_loop(llm, spec, fails, case, tr, has_excerpt)
+    for k in range(4):  # zero-token fallback when revisions could not fix a breaking slider end
+        if not fails:
+            break
+        fixes = narrow_ranges(spec, fails)
+        if not fixes:
+            break
+        tr.log("check", "narrow_ranges", "fixed", fixes=fixes)
+        fails = run_checks(spec, case, tr, label=f"narrow_{k + 1}")
 
     try:  # keep only quotes that really appear in the FULL original excerpt
         import checks
