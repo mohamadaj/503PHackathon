@@ -4,6 +4,7 @@ __pycache__/
 venv/
 .env
 out/
+out_*/
 runs/
-   out_*/
-   _xfer/
+_xfer/
+fresh_test/
