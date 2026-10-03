@@ -27,6 +27,18 @@ GEN_MAX_TOKENS = 12000
 REV_MAX_TOKENS = 5000
 MAX_REVISIONS = 2
 
+DEBUG_DIR = None  # set to the output dir when AGENT_DEBUG is on (dev only)
+
+
+def save_raw(name, text):
+    if DEBUG_DIR and text:
+        try:
+            with open(os.path.join(DEBUG_DIR, f"raw_{name}.txt"), "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception:
+            pass
+
+
 DISCLAIMER = ("This page is an illustration of the cited idea. "
               "It does not reproduce the paper's experiments or results.")
 
@@ -161,6 +173,24 @@ def local_repairs(spec):
                     if not isinstance(t, (int, float)) or isinstance(t, bool) or not t > 0:
                         e.pop("tol")
                         fixes.append(f"{group}[{i}].expect[{j}]: removed non-positive tol {t!r}")
+    # 1b. a hand-rounded expected value (e.g. 0.9989) with a tiny tol can never match:
+    #     widen tol to half a unit of its last printed decimal
+    for group in ("tests", "explorations"):
+        for i, item in enumerate(spec.get(group) or []):
+            if not isinstance(item, dict):
+                continue
+            for j, e in enumerate(item.get("expect") or []):
+                if not isinstance(e, dict):
+                    continue
+                v = e.get("equals")
+                if isinstance(v, float) and not isinstance(v, bool):
+                    txt = repr(v)
+                    dec = len(txt.split(".")[1]) if "." in txt and "e" not in txt else 0
+                    if 3 <= dec <= 6:
+                        need = 0.5 * 10 ** (-dec)
+                        if float(e.get("tol") or 1e-6) < need:
+                            e["tol"] = need
+                            fixes.append(f"{group}[{i}].expect[{j}]: tol -> {need:g} (equals {v} is rounded)")
     # 2. numeric states outside a slider/number range -> widen the range to include them
     ctrls = {c.get("id"): c for c in spec.get("controls") or []
              if isinstance(c, dict) and c.get("type") in ("slider", "number")}
@@ -347,6 +377,7 @@ def generate(llm, case, excerpt, extra, tr):
             if attempt == 1:
                 continue
             break
+        save_raw(f"generate_{attempt}", res.text)
         spec, err = extract_spec(res.text)
         tr.log("extract", "parse_spec", "ok" if spec else "fail", attempt=attempt,
                error=err, truncated=res.truncated,
@@ -383,6 +414,7 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
         res = llm.chat([{"role": "user", "content": prompt}], REV_MAX_TOKENS, stage="revise")
         if res is None:
             break
+        save_raw(f"revise_{rnd}", res.text)
         patch, err = extract_patch(res.text)
         if not patch:
             tr.log("revise", "parse_patch", "fail", revision=rnd, error=err)
@@ -475,6 +507,8 @@ def main():
     args = p.parse_args()
 
     os.makedirs(args.output, exist_ok=True)
+    global DEBUG_DIR
+    DEBUG_DIR = args.output if os.environ.get("AGENT_DEBUG") else None
     tr = Tracer(os.path.join(args.output, "trace.jsonl"))
     code = 1
     try:

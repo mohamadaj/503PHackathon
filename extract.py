@@ -68,7 +68,26 @@ def loads_lenient(s):
     try:
         return json.loads(fixed), None
     except json.JSONDecodeError:
-        return None, first_err
+        pass
+    obj = _escape_inner_quotes(fixed)
+    return (obj, None) if obj is not None else (None, first_err)
+
+
+def _escape_inner_quotes(s, max_fixes=60):
+    """Models often write text like  "change": "Press "Try it" now"  (unescaped quotes).
+    json then fails with "Expecting ',' delimiter" (or ':' / '}') right after the stray quote.
+    Escape the quote just before the error position and retry, a bounded number of times."""
+    for _ in range(max_fixes):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError as e:
+            if not any(k in e.msg for k in ("delimiter", "Expecting property name", "Extra data")):
+                return None
+            q = s.rfind('"', 0, e.pos)
+            if q <= 0 or s[q - 1] == "\\":
+                return None
+            s = s[:q] + '\\"' + s[q + 1:]
+    return None
 
 
 def _parse_first_object(candidates):

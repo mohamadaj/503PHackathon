@@ -28,6 +28,8 @@ Paper excerpt (source of truth; prefer it over memory):
 - "why" explains in plain terms; never claim a general mathematical property unless certain.
 - Do not mention whether an excerpt was available; the system adds that note.
 - compute returns only keys that visuals, tests or explorations use.
+- Inside JSON strings never use a raw double quote; write ' or “ ” instead.
+- If an expected value is rounded (e.g. 0.9989), set tol to half its last digit (0.00005).
 - Compact output: write the JSON minified (no indentation, no line breaks inside it). No commentary outside the two blocks.
 
 ## Output: exactly these two fenced blocks
