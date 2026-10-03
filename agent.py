@@ -146,7 +146,17 @@ def core_checks(spec):
 
 
 def run_checks(spec, case, tr, label):
-    fails = core_checks(spec)
+    """Shape (spec_schema.py, B) + behaviour (checks.py, C). Falls back to core_checks."""
+    warns = []
+    try:
+        import spec_schema
+        fails = list(spec_schema.validate(spec))
+        warns = list(spec_schema.lint(spec))
+    except Exception as e:
+        tr.log("check", "spec_schema", "error", error=f"{type(e).__name__}: {e}"[:300])
+        fails = core_checks(spec)
+    tr.log("check", "validate_shape", "pass" if not fails else "fail", round=label,
+           errors=fails[:15], warnings=warns[:10])
     try:
         import checks  # Person C
         extra = checks.run_all(spec) or []
@@ -155,7 +165,11 @@ def run_checks(spec, case, tr, label):
         tr.log("check", "checks_module", "error", error=f"{type(e).__name__}: {e}"[:300])
     tr.log("check", "run_all", "pass" if not fails else "fail",
            round=label, failed=len(fails), failures=fails[:20])
+    spec_warnings[:] = warns  # handed to the revise prompt as optional fixes
     return fails
+
+
+spec_warnings = []
 
 
 # ----------------------------------------------------------------- revise
@@ -174,6 +188,13 @@ def relevant_fields(spec, fails):
         if any(w in low for w in ("visual", "draw", "source path", "chart")):
             keys.update({"visuals", "compute"})
             recognised = True
+    try:
+        import spec_schema
+        for k in spec_schema.error_fields(fails):
+            keys.add(k)
+            recognised = True
+    except Exception:
+        pass
     if not recognised:
         return dict(spec)  # can't tell what's broken: send everything
     keys |= {"title"}  # a little context
@@ -284,7 +305,9 @@ def revise_loop(llm, spec, fails, case, tr, has_excerpt):
         fields = relevant_fields(spec, fails)
         prompt = fill(template,
                       focus=case["focus"],
-                      failures="\n".join(f"- {f}" for f in fails),
+                      failures="\n".join(f"- {f}" for f in fails) + (
+                          "\n\nAlso fix if easy (non-blocking):\n" +
+                          "\n".join(f"- {w}" for w in spec_warnings[:5]) if spec_warnings else ""),
                       fields=json.dumps(fields, ensure_ascii=False, indent=1))
         tr.log("revise", "request_patch", "sent", revision=rnd,
                fixing=fails[:20], fields_sent=sorted(fields.keys()))
