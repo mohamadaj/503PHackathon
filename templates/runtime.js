@@ -585,6 +585,9 @@
       ['x_min', 'x_max', 'y_min', 'y_max'].forEach(function (k) { if (typeof v[k] === 'string') v[k] = Number(resolve(v[k], out, st)); });
       var sharedX = v.x_source != null ? resolve(v.x_source, out, st) : null;
       var ser = (v.series || []).map(function (s) {
+        // Tolerate {source: <x path>, source_y|y_source: <y path>}: source is then the x values.
+        var ysrc = s.source_y != null ? s.source_y : s.y_source;
+        if (ysrc != null) s = Object.assign({}, s, { source: ysrc, x_source: s.x_source != null ? s.x_source : s.source });
         var xsrc = s.x_source != null ? s.x_source : v.x_source;
         var xs = s.x_source != null ? resolve(s.x_source, out, st) : sharedX;
         var data = numArr(resolve(s.source, out, st), s.source);

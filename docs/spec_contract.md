@@ -97,7 +97,7 @@ Every visual has `type`, `title`, optional `caption` (rich: what to look at).
 | `custom` | `height` (px in a 600-wide viewBox), `draw`: JS function expression `function draw(svg, state, out, h) {...}` – see below |
 
 **line / scatter details**
-* Each series may have its own `x_source` (e.g. a curve on a fine grid plus iterates on top of it).
+* Each series may have its own `x_source` (e.g. a curve on a fine grid plus iterates on top of it). The runtime also accepts `{"source": <x path>, "source_y": <y path>}` (or `y_source`) and reads it the same way.
   Without any `x_source`, x is the index 0, 1, 2, …
 * `style`: `line` (default) · `points` · `line+points` · `stem` (lollipops from 0, e.g. samples) · `dashed` · `step`.
 * Axis bounds may be numbers **or paths** (`"y_max": "values.y_top"`). Fixed bounds clip: points
