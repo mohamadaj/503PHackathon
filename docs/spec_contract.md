@@ -92,6 +92,8 @@ Every visual has `type`, `title`, optional `caption` (rich: what to look at).
 | `scatter` | same fields as `line`; series default to `style: "points"` |
 | `heatmap` | `source`, `row_labels?`, `col_labels?`, `row_title?`, `col_title?`, `digits?`, `domain?: [lo, hi]`, `row_sums?` (bool) |
 | `table` | `source` (→ `{cols, rows}`), `digits?` |
+| `vectors2d` | `items: [{kind, source, label?, from?, color?, dashed?, point_labels?}]`, `range?` (half-width, number or path; auto if absent), `x_label?`, `y_label?` – see below |
+| `graph` | `matrix` (path to n×n weights; non-zero → edge i→j) **or** `nodes` + `edges`; `node_labels?`, `node_values?` (path; shades nodes and prints the value), `highlight?` (node index/id or path), `directed?` (default true), `digits?`, `height?` – see below |
 | `custom` | `height` (px in a 600-wide viewBox), `draw`: JS function expression `function draw(svg, state, out, h) {...}` – see below |
 
 **line / scatter details**
@@ -103,6 +105,19 @@ Every visual has `type`, `title`, optional `caption` (rich: what to look at).
 * `y_log: true` → log₁₀ y axis (non-positive values are skipped). Good for errors/losses over iterations.
 * `markers`: `{x}` → vertical line, `{y}` → horizontal line, `{x, y}` → labelled point. Values may be
   paths. A marker outside fixed bounds is reported as "off-scale", never drawn at a clamped position.
+
+**vectors2d** (2-D plane, equal scaling on both axes, axes through the origin)
+* `kind: "vector"` – `source` → `[x, y]`, drawn as an arrow from `from` (default origin), labelled with its coordinates.
+* `kind: "points"` – `source` → `[[x, y], …]`; optional `point_labels`.
+* `kind: "segment"` – `source` → `[[x1, y1], [x2, y2]]` or a list of such segments (e.g. residuals).
+* `kind: "line"` – `source` → direction `[dx, dy]`, infinite line through `from` (default origin).
+* Use for projections, PCA directions, rotations/linear maps, dot products, gradients, decision boundaries.
+
+**graph** (nodes and edges; use instead of `custom` for chains, state machines, small networks)
+* From a matrix: `"matrix": "matrices.P"` – every non-zero `P[i][j]` becomes an edge i→j labelled with its weight.
+* Or explicitly: `"nodes": ["A", "B"]` (or `[{id, label, x?, y?, layer?}]`, or a count), `"edges": [{from, to, weight?, label?}]` (or `[from, to, weight]`); both may be paths.
+* Layout: circle by default; `layer` on nodes gives left-to-right columns; `x`, `y` in 0–1 on every node fixes positions.
+* Edge thickness ∝ |weight| (`weight_width: false` to disable); `show_weights: false` hides edge labels.
 
 `custom` helper `h`: `h.el(tag, attrs, parent)` (SVG element), `h.text(x, y, str, attrs, parent)`,
 `h.scale(d0, d1, r0, r1)` (linear), `h.fmt(v, digits)`, `h.color(i)`, `h.W` (600), `h.H`.

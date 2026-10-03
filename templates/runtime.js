@@ -751,6 +751,159 @@
       });
     },
 
+    // 2-D plane with equal axis scaling. items: [{kind: vector|points|segment|line, source, from?, label?, color?, dashed?}]
+    vectors2d: function (v, body, out, st) {
+      function pt(a) { return Array.isArray(a) && a.length >= 2 && isNum(+a[0]) && isNum(+a[1]) ? [+a[0], +a[1]] : null; }
+      function ptList(a) { return Array.isArray(a) ? a.map(pt).filter(Boolean) : []; }
+      var items = asArr(v.items).filter(isObj).map(function (it, idx) {
+        var d = resolve(it.source, out, st), from = pt(resolve(it.from, out, st)) || [0, 0];
+        var kind = it.kind || 'vector', r = { it: it, kind: kind, color: seriesColor(isNum(it.color) ? it.color : idx), label: svgLabel(it.label || '') };
+        if (kind === 'vector' || kind === 'line') { r.p = pt(d); r.from = from; }
+        else if (kind === 'points') r.pts = ptList(d);
+        else if (kind === 'segment') r.segs = (Array.isArray(d) && Array.isArray(d[0]) && Array.isArray(d[0][0]) ? d : [d]).map(ptList).filter(function (s) { return s.length === 2; });
+        return r;
+      });
+      if (!items.length) throw new Error('vectors2d has no items');
+      var all = [];
+      items.forEach(function (r) {
+        if (r.kind === 'vector' && r.p) all.push(r.from, [r.from[0] + r.p[0], r.from[1] + r.p[1]]);
+        if (r.kind === 'line') all.push(r.from);
+        (r.pts || []).forEach(function (p) { all.push(p); });
+        (r.segs || []).forEach(function (s) { all.push(s[0], s[1]); });
+      });
+      var R = Number(resolve(v.range, out, st));
+      if (!isNum(R) || R <= 0) R = Math.max(1, Math.max.apply(null, all.map(function (p) { return Math.max(Math.abs(p[0]), Math.abs(p[1])); }).concat([0])) * 1.18);
+      var top = 26, S = Math.min(W - 70, 430), h = S + top + 34, x0 = (W - S) / 2 + 14;
+      var svg = newSvg(body, h);
+      var X = linScale(-R, R, x0, x0 + S), Y = linScale(-R, R, top + S, top);
+      var ticks = niceTicks(-R, R, 6);
+      ticks.forEach(function (t) {
+        sv('line', { x1: X(t), x2: X(t), y1: top, y2: top + S, class: 'grid' }, svg);
+        sv('line', { x1: x0, x2: x0 + S, y1: Y(t), y2: Y(t), class: 'grid' }, svg);
+        svText(X(t), top + S + 14, tickFmt(t, ticks), { class: 'tick', 'text-anchor': 'middle' }, svg);
+        svText(x0 - 5, Y(t) + 4, tickFmt(t, ticks), { class: 'tick', 'text-anchor': 'end' }, svg);
+      });
+      sv('line', { x1: x0, x2: x0 + S, y1: Y(0), y2: Y(0), class: 'zero' }, svg);
+      sv('line', { x1: X(0), x2: X(0), y1: top, y2: top + S, class: 'zero' }, svg);
+      if (v.x_label) svText(x0 + S - 4, Y(0) - 7, String(v.x_label), { class: 'axis-title', 'text-anchor': 'end' }, svg);
+      if (v.y_label) svText(X(0) + 7, top + 12, String(v.y_label), { class: 'axis-title' }, svg);
+      var clipId = 'clip' + (++clipSeq);
+      sv('rect', { x: x0, y: top, width: S, height: S }, sv('clipPath', { id: clipId }, sv('defs', null, svg)));
+      var g = sv('g', { 'clip-path': 'url(#' + clipId + ')' }, svg);
+      var legendItems = [], skipped = 0;
+      items.forEach(function (r) {
+        var dash = r.it.dashed ? '6 4' : null;
+        if (r.kind === 'vector') {
+          if (!r.p) { skipped++; return; }
+          var ax = X(r.from[0]), ay = Y(r.from[1]), bx = X(r.from[0] + r.p[0]), by = Y(r.from[1] + r.p[1]);
+          sv('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: r.color, 'stroke-width': 2.6, 'stroke-dasharray': dash }, g);
+          arrowHead(g, ax, ay, bx, by, r.color);
+          if (r.label) svText(bx + 6, by - 6, r.label + ' (' + fmt(r.p[0], 2) + ', ' + fmt(r.p[1], 2) + ')', { class: 'vlabel', style: 'fill:' + r.color + ';font-weight:600' }, svg);
+        } else if (r.kind === 'line') {
+          if (!r.p || (r.p[0] === 0 && r.p[1] === 0)) { skipped++; return; }
+          var k = 4 * R / Math.hypot(r.p[0], r.p[1]);
+          sv('line', { x1: X(r.from[0] - k * r.p[0]), y1: Y(r.from[1] - k * r.p[1]), x2: X(r.from[0] + k * r.p[0]), y2: Y(r.from[1] + k * r.p[1]), stroke: r.color, 'stroke-width': 1.6, 'stroke-dasharray': dash || '2 0' }, g);
+          if (r.label) legendItems.push(r);
+        } else if (r.kind === 'points') {
+          var labs = r.it.point_labels != null ? labelsFor(r.it.point_labels, r.pts.length, out, st) : null;
+          r.pts.forEach(function (p, i) {
+            sv('circle', { cx: X(p[0]), cy: Y(p[1]), r: 4.5, fill: r.color, stroke: 'var(--panel)', 'stroke-width': 1.2 }, g)
+              .appendChild(document.createElementNS(SVGNS, 'title')).textContent = (r.label || 'point') + ' ' + (i + 1) + ': (' + fmt(p[0], 3) + ', ' + fmt(p[1], 3) + ')';
+            if (labs) svText(X(p[0]) + 6, Y(p[1]) - 6, labs[i], { class: 'tick' }, svg);
+          });
+          if (r.label) legendItems.push(r);
+        } else if (r.kind === 'segment') {
+          r.segs.forEach(function (s) { sv('line', { x1: X(s[0][0]), y1: Y(s[0][1]), x2: X(s[1][0]), y2: Y(s[1][1]), stroke: r.color, 'stroke-width': 1.6, 'stroke-dasharray': dash }, g); });
+          if (r.label) legendItems.push(r);
+        } else skipped++;
+      });
+      var lx = 8;
+      legendItems.forEach(function (r) {
+        sv('rect', { x: lx, y: 6, width: 11, height: 11, rx: 2, fill: r.color }, svg);
+        svText(lx + 15, 15.5, r.label, { class: 'tick' }, svg);
+        lx += 30 + r.label.length * 6.4;
+      });
+      if (skipped) svText(W - 6, h - 4, skipped + ' item(s) not drawn (invalid data)', { class: 'tick', 'text-anchor': 'end' }, svg);
+    },
+
+    // Nodes and (directed) edges. nodes: array | path | count; edges: [{from, to, weight?, label?}] | path;
+    // or matrix: path to an n×n weight/transition matrix (non-zero entries become edges).
+    graph: function (v, body, out, st) {
+      var rawN = resolve(v.nodes, out, st), M = v.matrix != null ? resolve(v.matrix, out, st) : null;
+      if (rawN == null && Array.isArray(M)) rawN = M.length;
+      var nodes = (typeof rawN === 'number' ? range(Math.max(0, Math.round(rawN))) : asArr(rawN)).map(function (n, i) {
+        if (isObj(n)) return { id: n.id != null ? String(n.id) : String(i + 1), label: n.label != null ? n.label : (n.id != null ? n.id : i + 1), x: n.x, y: n.y, layer: n.layer };
+        return { id: typeof rawN === 'number' ? String(i + 1) : String(n), label: typeof rawN === 'number' ? i + 1 : n };
+      });
+      if (!nodes.length) throw new Error('graph has no nodes');
+      var nl = v.node_labels != null ? labelsFor(v.node_labels, nodes.length, out, st) : null;
+      if (nl) nodes.forEach(function (n, i) { n.label = nl[i]; });
+      var index = {};
+      nodes.forEach(function (n, i) { index[n.id] = i; index[String(n.label)] = index[String(n.label)] != null ? index[String(n.label)] : i; });
+      function ref(x) { if (typeof x === 'number' && x >= 0 && x < nodes.length && index[String(x)] == null) return x; var k = index[String(x)]; return k != null ? k : (typeof x === 'number' ? x : -1); }
+      var edges = [];
+      if (Array.isArray(M)) M.forEach(function (row, i) { asArr(row).forEach(function (w, j) { w = Number(w); if (isNum(w) && w !== 0 && j < nodes.length) edges.push({ a: i, b: j, w: w }); }); });
+      else asArr(resolve(v.edges, out, st)).forEach(function (e) {
+        var a, b, w, lab;
+        if (Array.isArray(e)) { a = e[0]; b = e[1]; w = e[2]; } else if (isObj(e)) { a = e.from; b = e.to; w = e.weight; lab = e.label; } else return;
+        a = ref(a); b = ref(b);
+        if (a >= 0 && b >= 0 && a < nodes.length && b < nodes.length) edges.push({ a: a, b: b, w: w == null ? null : Number(w), label: lab });
+      });
+      var vals = v.node_values != null ? asArr(resolve(v.node_values, out, st)).map(Number) : null;
+      var hiNode = v.highlight != null ? ref(resolve(v.highlight, out, st)) : -1;
+      var h = isNum(v.height) ? v.height : 340, n = nodes.length;
+      var r = Math.max(13, Math.min(24, 120 / Math.sqrt(n)));
+      var pos;
+      if (nodes.every(function (q) { return isNum(q.x) && isNum(q.y); })) pos = nodes.map(function (q) { return [40 + q.x * (W - 80), 30 + q.y * (h - 70)]; });
+      else if (nodes.some(function (q) { return isNum(q.layer); })) {
+        var layers = {}, keys;
+        nodes.forEach(function (q, i) { var L = isNum(q.layer) ? q.layer : 0; (layers[L] = layers[L] || []).push(i); });
+        keys = Object.keys(layers).map(Number).sort(function (a, b) { return a - b; });
+        pos = new Array(n);
+        keys.forEach(function (L, li) {
+          layers[L].forEach(function (i, k) { pos[i] = [60 + (W - 120) * (keys.length > 1 ? li / (keys.length - 1) : 0.5), 30 + (h - 70) * (k + 1) / (layers[L].length + 1)]; });
+        });
+      } else {
+        var cx = W / 2, cy = (h - 20) / 2 + 6, rad = Math.min(W / 2 - 60, (h - 20) / 2 - r - 22);
+        pos = nodes.map(function (_, i) { var t = -Math.PI / 2 + 2 * Math.PI * i / n; return n === 1 ? [cx, cy] : [cx + rad * Math.cos(t), cy + rad * Math.sin(t)]; });
+        // centre the polygon vertically (odd n leaves it top-heavy); leave room for self-loops above
+        var ys = pos.map(function (q) { return q[1]; }), shift = (h + 16) / 2 - (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+        pos.forEach(function (q) { q[1] += shift; });
+      }
+      var svg = newSvg(body, h);
+      var directed = v.directed !== false, digits = v.digits == null ? 2 : v.digits;
+      var maxW = Math.max.apply(null, edges.map(function (e) { return isNum(e.w) ? Math.abs(e.w) : 0; }).concat([1e-12]));
+      var has = {};
+      edges.forEach(function (e) { has[e.a + ',' + e.b] = 1; });
+      var labelStyle = 'paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round';
+      edges.forEach(function (e) {
+        var col = 'var(--axis)', sw = isNum(e.w) && v.weight_width !== false ? 1.2 + 2.6 * Math.abs(e.w) / maxW : 1.6;
+        var A = pos[e.a], B = pos[e.b], txt = e.label != null ? svgLabel(e.label) : (isNum(e.w) && v.show_weights !== false ? fmt(e.w, digits) : '');
+        if (e.a === e.b) {
+          var lx0 = A[0], ly0 = A[1] - r;
+          sv('path', { d: 'M' + (lx0 - 8) + ' ' + ly0 + ' C ' + (lx0 - 26) + ' ' + (ly0 - 40) + ' ' + (lx0 + 26) + ' ' + (ly0 - 40) + ' ' + (lx0 + 8) + ' ' + ly0, fill: 'none', stroke: col, 'stroke-width': sw }, svg);
+          if (directed) arrowHead(svg, lx0 + 16, ly0 - 14, lx0 + 8, ly0, col);
+          if (txt) svText(lx0, ly0 - 34, txt, { class: 'vlabel', 'text-anchor': 'middle', style: labelStyle }, svg);
+          return;
+        }
+        var dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
+        var bend = has[e.b + ',' + e.a] ? 22 : 0, nx = -uy * bend, ny = ux * bend;
+        var sx = A[0] + ux * r, sy = A[1] + uy * r, ex = B[0] - ux * (r + 2), ey = B[1] - uy * (r + 2);
+        var qx = (sx + ex) / 2 + nx, qy = (sy + ey) / 2 + ny;
+        sv('path', { d: 'M' + sx + ' ' + sy + ' Q ' + qx + ' ' + qy + ' ' + ex + ' ' + ey, fill: 'none', stroke: col, 'stroke-width': sw }, svg);
+        if (directed) arrowHead(svg, qx, qy, ex, ey, col);
+        if (txt) svText((sx + 2 * qx + ex) / 4, (sy + 2 * qy + ey) / 4 + 4, txt, { class: 'vlabel', 'text-anchor': 'middle', style: labelStyle }, svg);
+      });
+      var vmax = vals ? Math.max.apply(null, vals.filter(isNum).concat([1e-12])) : 0;
+      nodes.forEach(function (q, i) {
+        var P = pos[i], val = vals ? vals[i] : null;
+        var op = vals && isNum(val) ? 0.12 + 0.8 * Math.max(0, val) / vmax : 0.14;
+        sv('circle', { cx: P[0], cy: P[1], r: r, fill: 'rgb(36,89,214)', 'fill-opacity': op, stroke: i === hiNode ? 'var(--bad)' : 'rgb(36,89,214)', 'stroke-width': i === hiNode ? 3 : 1.6 }, svg);
+        svText(P[0], P[1] + 4, svgLabel(q.label), { 'text-anchor': 'middle', style: 'font-size:12px;font-weight:600;' + (op > 0.55 ? 'fill:#fff' : '') }, svg);
+        if (vals) svText(P[0], P[1] + r + 13, fmt(val, digits), { class: 'vlabel', 'text-anchor': 'middle', style: labelStyle }, svg);
+      });
+    },
+
     custom: function (v, body, out, st, drawFn) {
       var h = isNum(v.height) ? v.height : 300;
       var svg = newSvg(body, h);
@@ -762,6 +915,15 @@
   };
 
   VISUALS.scatter = VISUALS.line;
+
+  // Filled triangular arrowhead pointing from (x1,y1) to its tip (x2,y2).
+  function arrowHead(parent, x1, y1, x2, y2, color) {
+    var dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy);
+    if (!(L > 0)) return;
+    var ux = dx / L, uy = dy / L, s = 9, w = 4.5;
+    var pts = [[x2, y2], [x2 - ux * s - uy * w, y2 - uy * s + ux * w], [x2 - ux * s + uy * w, y2 - uy * s - ux * w]];
+    sv('polygon', { points: pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' '), fill: color }, parent);
+  }
 
   // Opacity ramp over the panel colour, so it reads in light and dark themes.
   // Positive → blue, negative → orange (diverging around 0).

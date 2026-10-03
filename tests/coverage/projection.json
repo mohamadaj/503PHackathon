@@ -1,0 +1,31 @@
+{
+  "title": "Projecting one vector onto another",
+  "subtitle": "proj<sub>b</sub> a = (a·b / ‖b‖²) b, and the residual that is left over.",
+  "audience": "Engineering undergraduate",
+  "intro": {"idea": "The projection of a onto b is the multiple of b closest to a. What is left, a − proj<sub>b</sub> a, is perpendicular to b.", "why": "Least squares, PCA and Gram–Schmidt are all built from this one operation.",
+    "symbols": [{"symbol": "a, b", "meaning": "vectors in the plane", "unit": "—"}, {"symbol": "a·b", "meaning": "dot product a<sub>1</sub>b<sub>1</sub> + a<sub>2</sub>b<sub>2</sub>", "unit": "—"}]},
+  "controls": [
+    {"id": "a", "type": "vector", "label": "Vector a", "length": 2, "default": [2, 3], "step": 0.5, "item_labels": ["a₁", "a₂"]},
+    {"id": "b", "type": "vector", "label": "Vector b", "length": 2, "default": [4, 1], "step": 0.5, "item_labels": ["b₁", "b₂"]},
+    {"id": "showData", "type": "toggle", "label": "Show a small data cloud and the line along b", "default": true}
+  ],
+  "compute": "function compute(s) {\n  var a = s.a, b = s.b, bb = b[0] * b[0] + b[1] * b[1];\n  var dot = a[0] * b[0] + a[1] * b[1];\n  var out = { values: { dot: dot }, series: { a: a, b: b }, matrices: {} };\n  if (bb === 0) { out.warning = 'b is the zero vector, so there is no direction to project onto.'; return out; }\n  var c = dot / bb, p = [c * b[0], c * b[1]], r = [a[0] - p[0], a[1] - p[1]];\n  out.values.coef = c; out.values.resid_dot_b = r[0] * b[0] + r[1] * b[1];\n  out.series.p = p; out.series.r = r;\n  out.matrices.drop = [a, p];\n  out.matrices.cloud = s.showData ? [[-3, -1.2], [-1.5, -0.1], [0.5, 0.4], [2, 0.3], [3.5, 1.1], [1, -0.4]] : [];\n  return out;\n}",
+  "visuals": [
+    {"type": "readouts", "title": "Numbers", "items": [{"source": "values.dot", "label": "a·b"}, {"source": "values.coef", "label": "a·b / ‖b‖²"}, {"source": "values.resid_dot_b", "label": "Check: residual · b"}]},
+    {"type": "vectors2d", "title": "The projection", "x_label": "x₁", "y_label": "x₂",
+     "items": [{"kind": "points", "source": "matrices.cloud", "label": "data", "color": 4},
+               {"kind": "line", "source": "series.b", "label": "line along b", "color": 4, "dashed": true},
+               {"kind": "vector", "source": "series.a", "label": "a", "color": 0},
+               {"kind": "vector", "source": "series.b", "label": "b", "color": 1},
+               {"kind": "vector", "source": "series.p", "label": "proj", "color": 2},
+               {"kind": "segment", "source": "matrices.drop", "label": "residual", "color": 3, "dashed": true}]}
+  ],
+  "explorations": [
+    {"title": "Perpendicular vectors", "kind": "guided", "state": {"a": [0, 3], "b": [4, 0]}, "change": "Try it.", "observe": "proj = 0", "why": "a·b = 0.", "expect": [{"source": "values.coef", "equals": 0}]},
+    {"title": "Zero b", "kind": "limitation", "state": {"a": [1, 1], "b": [0, 0]}, "change": "Try it.", "observe": "Warning.", "why": "No direction.", "expect": [{"source": "values.dot", "equals": 0}]}
+  ],
+  "limitations": ["2-D only."],
+  "tests": [{"name": "residual ⟂ b", "state": {"a": [2, 3], "b": [4, 1]}, "expect": [{"source": "values.resid_dot_b", "equals": 0, "tol": 1e-9}]},
+            {"name": "coef", "state": {"a": [2, 3], "b": [4, 1]}, "expect": [{"source": "values.coef", "equals": 0.6470588235, "tol": 1e-8}]}],
+  "source": {"paper": "COVERAGE TEST SPEC (not a showcase)", "supported": [], "simplifications": ["Template coverage: vectors2d with vector, points, line, segment items."]}
+}
