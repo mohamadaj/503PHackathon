@@ -59,7 +59,7 @@ Paper excerpt (source of truth; prefer it over memory):
   "visuals": [
     {"type": "readouts", "title": "...", "items": [{"source": "values.H", "label": "...", "unit": "bits", "digits": 3}]},
     {"type": "bar", "title": "...", "caption": "what to look at", "series": [{"source": "series.p", "label": "..."}], "x_labels": "series.labels", "x_label": "...", "y_label": "..."},
-    {"type": "line", "title": "...", "x_source": "series.xs", "series": [{"source": "series.ys", "label": "..."}], "x_label": "...", "y_label": "...", "marker": {"x": "values.n", "y": "values.H", "label": "you"}},
+    {"type": "line", "title": "...", "x_source": "series.xs", "series": [{"source": "series.ys", "label": "..."}, {"source": "series.iterLoss", "x_source": "series.iterTheta", "style": "points", "label": "iterates"}], "x_label": "...", "y_label": "...", "marker": {"x": "values.n", "y": "values.H", "label": "you"}},
     {"type": "heatmap", "title": "...", "source": "matrices.A", "row_labels": "q{i}", "col_labels": "k{i}", "digits": 2, "row_sums": true},
     {"type": "table", "title": "...", "source": "tables.t", "digits": 3},
     {"type": "vectors2d", "title": "...", "items": [{"kind": "vector", "source": "series.v", "label": "v"}, {"kind": "points", "source": "matrices.P"}, {"kind": "line", "source": "series.dir"}], "x_label": "x", "y_label": "y"},
@@ -92,4 +92,4 @@ function compute(state) {
 }
 ```
 
-Use only the control and visual types shown, and only the ones you need. Pick the visual that shows the mechanism: bar/line for quantities, heatmap for matrices, vectors2d for 2-D vectors/points/projections/directions, graph for states/nodes/transitions (pass a matrix path). Every visual gets a caption saying what to look at. Plot every quantity the focus says to show (e.g. each iterate on the curve), not only compute it.
+Use only the control and visual types shown, and only the ones you need. A line series may have its own x_source and style (line, points, stem, dashed); use y_log for exponential growth/decay and markers for reference lines. Pick the visual that shows the mechanism: bar/line for quantities, heatmap for matrices, vectors2d for 2-D vectors/points/projections/directions, graph for states/nodes/transitions (pass a matrix path). Every visual gets a caption saying what to look at. Plot every quantity the focus says to show (e.g. each iterate on the curve), not only compute it.
