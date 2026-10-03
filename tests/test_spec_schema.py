@@ -188,6 +188,25 @@ def test_line_and_scatter_contract_features():
     assert paths["visuals[4].series[0]"] == "series.p"
 
 
+def test_vectors2d_and_graph():
+    spec = copy.deepcopy(GOLDEN["entropy"])
+    spec["visuals"] += [
+        {"type": "vectors2d", "title": "v", "range": "values.H_max",
+         "items": [{"kind": "vector", "source": "series.p", "label": "p"},
+                   {"kind": "points", "source": "series.contrib", "from": "series.p", "point_labels": "x{i}"}]},
+        {"type": "graph", "title": "g", "matrix": "matrices.P", "node_values": "series.p", "directed": True},
+        {"type": "graph", "title": "g2", "nodes": ["A", "B"], "edges": [{"from": "A", "to": "B", "weight": 1}]},
+    ]
+    assert validate(spec) == [], validate(spec)
+    paths = dict(referenced_paths(spec))
+    assert paths["visuals[4].range"] == "values.H_max" and paths["visuals[4].items[1].from"] == "series.p"
+    assert paths["visuals[5].matrix"] == "matrices.P" and paths["visuals[5].node_values"] == "series.p"
+    spec["visuals"][4]["items"][0]["kind"] = "arrow"
+    spec["visuals"][5].pop("matrix")
+    spec["visuals"][6]["directed"] = "yes"
+    expect_error(validate(spec, limit=None), "'kind' must be one of", "graph needs 'matrix'", "'directed' must be true or false")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

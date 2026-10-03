@@ -563,6 +563,13 @@ def _path_kinds(spec):
             kinds[f"{w}.source"] = "matrix"
         elif t == "table":
             kinds[f"{w}.source"] = "table"
+        elif t == "vectors2d":
+            kinds[f"{w}.range"] = "number"
+            for j, _ in enumerate(v.get("items") or []):
+                kinds[f"{w}.items[{j}]"] = kinds[f"{w}.items[{j}].from"] = "array"
+        elif t == "graph":
+            kinds[f"{w}.matrix"] = "matrix"
+            kinds[f"{w}.edges"] = kinds[f"{w}.node_values"] = "array"
     return kinds
 
 
