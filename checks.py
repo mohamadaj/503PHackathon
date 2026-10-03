@@ -233,6 +233,19 @@ function __available(path) {
   return '';
 }
 
+// "Defined" = something the page would print as real numbers: finite numbers, non-empty arrays of
+// defined entries, tables with rows, strings/booleans. undefined, null, NaN or [] are "left out".
+function __isDefined(v) {
+  if (v === undefined || v === null) return false;
+  if (typeof v === 'number') return isFinite(v);
+  if (Array.isArray(v)) return v.length > 0 && v.every(__isDefined);
+  if (typeof v === 'object') return Array.isArray(v.rows) ? v.rows.length > 0 : Object.keys(v).length > 0;
+  return true;
+}
+function __defined(listJson) {
+  return JSON.stringify(JSON.parse(listJson).map(function (p) { return __isDefined(resolve(p, __out, __st)); }));
+}
+
 function __kindOk(v, kind) {
   if (kind === 'array') return Array.isArray(v);
   if (kind === 'matrix') return Array.isArray(v) && v.length > 0;
@@ -292,7 +305,7 @@ function __draw(i) {
 }
 """
 
-_ENTRY_POINTS = ("__info", "__compute", "__expect", "__paths", "__draw")
+_ENTRY_POINTS = ("__info", "__compute", "__expect", "__paths", "__draw", "__defined")
 
 
 def _extract_js_functions(src, names):
@@ -392,6 +405,7 @@ class _JSChecks:
         self.readout_keys = {it["source"].split(".")[1] for v in spec.get("visuals") or [] if v.get("type") == "readouts"
                              for it in v.get("items") or [] if str(it.get("source", "")).startswith("values.")}
         self.warned_notes = set()
+        self.shown_paths = _displayed_value_paths(spec)
         self.js = _Engine(spec)
 
     # -- helpers
@@ -423,7 +437,7 @@ class _JSChecks:
             return False
         return True
 
-    def compute(self, partial, label, kind, expect_keys=()):
+    def compute(self, partial, label, kind, expect_keys=(), expect_paths=()):
         """Run compute for one state; record compute failures; return the result dict or None."""
         self.stats["states"][kind] = self.stats["states"].get(kind, 0) + 1
         r, err = self.js.call("__compute", None if partial is None else json.dumps(partial))
@@ -441,31 +455,37 @@ class _JSChecks:
             self.fail(f"compute: returned non-finite numbers ({', '.join(r['bad'][:3])}) || If a quantity is "
                       f"undefined for these inputs, leave it out of values and set 'warning'", label)
         if (r.get("warning") or "").strip():
-            self.warning_with_numbers(r, label, expect_keys)
+            self.warning_with_numbers(r, label, expect_keys, expect_paths)
         return r
 
-    def warning_with_numbers(self, r, label, expect_keys):
-        """The page shows compute's warning as a banner but still prints every number in values.
-        A number the warning itself calls undefined (it names the key), or one computed from a made-up
-        substitute ("... instead", "assume", "fall back"), is a failure. Other shown numbers under a
-        warning may be real (e.g. a sum that really is 0), so they only get a note."""
+    def warning_with_numbers(self, r, label, expect_keys, expect_paths):
+        """The page shows compute's warning as a banner but still prints every number it gets, so a
+        warning must come with something left out. Failures, most specific first:
+          1. the warning names a values key that is still shown as a number ("H is undefined", H = 0);
+          2. (B's rule) every displayed path (readouts, charts, markers, this state's expects) is still
+             fully defined, so nothing was left out: the page shows a made-up value next to the warning;
+          3. the warning admits a substitute ("instead", "fall back", "assume", "using a uniform ...").
+        Otherwise the remaining shown numbers may be real (a sum that really is 0): a note each."""
         warning = r["warning"].strip()
-        values = (json.loads(r["out"]).get("values") or {})
-        shown = [k for k in sorted(self.readout_keys | set(expect_keys))
-                 if _is_num(values.get(k))]
-        if not shown:
-            return
         quoted = json.dumps(_short(warning, 70), ensure_ascii=False)
+        values = (json.loads(r["out"]).get("values") or {})
+        shown = [k for k in sorted(self.readout_keys | set(expect_keys)) if _is_num(values.get(k))]
         named = [k for k in shown if _mentions(warning, k)]
         for k in named:
             self.fail(f"compute: values.{k} is shown as a number while compute reports the warning {quoted} || "
                       f"Leave {k} out of values when it is undefined, so the page shows '—' next to the warning", label)
-        if _SUBSTITUTE.search(warning):
-            rest = [k for k in shown if k not in named]
-            if rest:
-                self.fail(f"compute: the warning {quoted} says a substitute is used, yet values "
-                          f"{', '.join(rest)} are still shown as numbers || Never substitute made-up inputs; leave "
-                          f"undefined results out of values so the page shows '—'", label)
+        if named:
+            return
+        paths = list(dict.fromkeys(self.shown_paths + list(expect_paths)))
+        defined, err = self.js.call("__defined", json.dumps(paths)) if paths else ([], None)
+        if not err and defined and all(defined):
+            self.fail(f"compute: returns warning {quoted} but every displayed value is still defined || "
+                      f"Leave the undefined value(s) out of the output (don't substitute a made-up one)", label)
+            return
+        if _SUBSTITUTE.search(warning) and shown:
+            self.fail(f"compute: the warning {quoted} says a substitute is used, yet values "
+                      f"{', '.join(shown)} are still shown as numbers || Never substitute made-up inputs; leave "
+                      f"undefined results out of values so the page shows '—'", label)
             return
         for k in shown:
             if k not in named and k not in self.warned_notes:
@@ -534,9 +554,10 @@ class _JSChecks:
                 if not self.budget_left():
                     break
                 label = f"for the state of {group}[{i}]"
-                keys = {str(e.get("source", "")).split(".")[1] for e in item.get("expect") or []
-                        if isinstance(e, dict) and str(e.get("source", "")).startswith("values.")}
-                r = self.compute(item.get("state") or {}, label, group, expect_keys=keys)
+                paths = [e["source"] for e in item.get("expect") or []
+                         if isinstance(e, dict) and isinstance(e.get("source"), str) and not e["source"].startswith("state.")]
+                keys = {p.split(".")[1] for p in paths if p.startswith("values.")}
+                r = self.compute(item.get("state") or {}, label, group, expect_keys=keys, expect_paths=paths)
                 if r is None:
                     continue
                 if group != "presets":
@@ -655,6 +676,16 @@ def _fuzz_values(c):
     if t == "matrix" and isinstance(d, list) and d and isinstance(d[0], list) and d[0]:
         return [[[_nudge(c, d[0][0])] + list(d[0][1:])] + [list(r) for r in d[1:]]]
     return []
+
+
+_VALUE_WHERE = re.compile(r"^visuals\[\d+\]\.(items\[\d+\]|series\[\d+\]|source|matrix|node_values|markers?(\[\d+\])?\.[xy])$")
+
+
+def _displayed_value_paths(spec):
+    """Paths whose values the page prints or plots: readouts, chart series, heatmap/table/graph data,
+    markers. Not labels, x grids, axis bounds or state.* inputs."""
+    return [p for where, p in spec_schema.referenced_paths(spec)
+            if _VALUE_WHERE.match(where) and not p.startswith("state.")]
 
 
 # A warning that admits the shown numbers come from a made-up substitute.

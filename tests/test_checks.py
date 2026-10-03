@@ -169,15 +169,28 @@ def test_warning_naming_a_shown_value_fails():
                    "Leave H out of values", "tests[7]")
 
 
-def test_warning_admitting_a_substitute_fails():
-    s = golden("entropy")  # falls back to a uniform distribution and says so
+WARNING_TEXT = ("'All weights are zero, so there is no probability distribution and H is undefined. "
+                "Enter at least one positive weight.'")
+
+
+def test_warning_with_every_displayed_value_defined_fails():
+    s = golden("entropy")  # the real DeepSeek bug: vague warning, H silently computed from a made-up uniform p
     s["compute"] = (s["compute"]
                     .replace("raw > 0 ? x / raw : 0", "raw > 0 ? x / raw : 1 / w.length")
                     .replace("if (raw > 0) values.H = H;", "values.H = H;")
-                    .replace("'All weights are zero, so there is no probability distribution and H is undefined. "
-                             "Enter at least one positive weight.'",
-                             "'All weights are zero, so a uniform distribution is used instead.'"))
-    expect_failure(run_all(s), "says a substitute is used", "H, H_max, sum_p")
+                    .replace(WARNING_TEXT, "'The weights sum to zero.'"))
+    f = run_all(s)
+    expect_failure(f, 'compute: returns warning "The weights sum to zero." but every displayed value is still defined',
+                   "tests[7]", "when p = [0, 0, 0, 0]")
+    assert not any("says a substitute" in x for x in f), "one line per problem"
+
+
+def test_warning_admitting_a_substitute_fails():
+    s = golden("entropy")  # H is left out, but sum_p is computed from a made-up uniform p and the warning says so
+    s["compute"] = (s["compute"]
+                    .replace("raw > 0 ? x / raw : 0", "raw > 0 ? x / raw : 1 / w.length")
+                    .replace(WARNING_TEXT, "'All weights are zero, so a uniform distribution is used instead.'"))
+    expect_failure(run_all(s), "says a substitute is used", "values H_max, sum_p")
 
 
 def test_real_values_under_a_warning_are_notes():
