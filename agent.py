@@ -85,9 +85,8 @@ def build_context(case, tr):
                note="no excerpt in case; relying on focus text and model knowledge")
     extra_txt = "\n".join(f"{k}: {str(v)[:500]}" for k, v in extras.items())
     if not cut:
-        cut = ("(No excerpt was provided. Use only well-established facts about this paper/"
-               "concept, cite section/equation names only if you are confident, and say in "
-               "our_simplifications that no excerpt was available.)")
+        cut = ("(None. Use only well-established facts about this paper/concept, cite "
+               "section/equation names only if confident, and leave source.supported empty.)")
     return cut, extra_txt, bool(excerpt)
 
 
@@ -348,6 +347,9 @@ def run(args, tr):
         return 2
 
     excerpt, extra, has_excerpt = build_context(case, tr)
+    if os.environ.get("AGENT_DEBUG"):  # dev only: the exact excerpt text the model saw
+        with open(os.path.join(args.output, "excerpt_used.txt"), "w", encoding="utf-8") as f:
+            f.write(excerpt)
     llm = LLM(key, args.model, tr)
 
     spec, err = generate(llm, case, excerpt, extra, tr)
