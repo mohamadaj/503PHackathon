@@ -35,6 +35,10 @@ A page scoring below 50/85 earns no efficiency points, so be precise near that l
 - PAGE TEXT is the visible text of the page rendered in headless Chromium at its default inputs (sections:
   intro, playground with controls and visuals, guided explorations, limitations, source grounding, built-in
   self-checks). Charts are SVG, so only their titles, captions, axis labels and value labels appear as text.
+  Subscripts and superscripts that the page renders properly are written here as _(…) and ^(…)
+  (e.g. θ^(2), K^(T), 10000^(2i/d_(model))); that is not a notation problem on the page.
+- Exploration cards show a "Try it: set these inputs" button that applies the exploration's SPEC state. Judge
+  "change" on whether it clearly says what to change; it need not repeat every value of the state.
 - SPEC is the JSON the page is built from: controls (with ranges), the `compute` JavaScript that produces every
   number, the visuals (which compute outputs each one plots), the explorations (with their exact states and
   expected values), tests, and source grounding. Use it to verify the mechanism and every formula by hand.
@@ -47,7 +51,8 @@ A page scoring below 50/85 earns no efficiency points, so be precise near that l
 ## Deduction guide (deduct, with a reason, for each concrete problem)
 Charge each problem ONCE, under the single most relevant criterion (a false claim is an accuracy problem; do
 not also deduct it under clarity). Before deducting for a wrong number, recompute it from the SPEC; tables in
-PAGE TEXT separate columns with "|".
+PAGE TEXT separate columns with "|". For each exploration and test, check that its SPEC state really sets what
+its text says (e.g. text "set T to 1" but state n = 4 is a mismatch: the "Try it" button shows something else).
 - accuracy: a wrong formula or wrong computed value (recompute it yourself); a claim in the text or explorations
   that contradicts the math or the excerpt; a quote or claim attributed to the paper that the excerpt does not
   support; a wrong or missing citation (paper, section/equation); simplifications not stated; implying the toy

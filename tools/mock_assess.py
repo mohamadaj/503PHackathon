@@ -72,6 +72,8 @@ class _VisibleText(HTMLParser):
             self.out.append(f" [{a.get('aria-label') or a.get('type')}: {a['value']}] ")
         if tag == "select":
             self.out.append(" [select] ")
+        if tag in ("sub", "sup"):  # keep the formatting visible to the grader (θ<sup>2</sup> -> θ^(2))
+            self.out.append("_(" if tag == "sub" else "^(")
 
     def handle_endtag(self, tag):
         if self.skip:
@@ -79,6 +81,8 @@ class _VisibleText(HTMLParser):
             return
         if tag in ("td", "th"):  # keep table columns apart, or the grader misreads them
             self.out.append(" | ")
+        elif tag in ("sub", "sup"):
+            self.out.append(")")
         elif tag in self.BLOCK:
             self.out.append("\n")
 
