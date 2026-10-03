@@ -153,6 +153,58 @@ def test_compute_returning_array():
     expect_failure(run_all(s), "returned an array", field="compute:")
 
 
+def test_zero_vector_fuzz_catches_nan():
+    s = golden("entropy")  # no guard against all-zero weights, and no test that would notice
+    s["compute"] = s["compute"].replace("raw > 0 ? x / raw : 0", "x / raw")
+    s["tests"] = [t for t in s["tests"] if "All-zero" not in t["name"]]
+    expect_failure(run_all(s), "non-finite", "series.p.0 = NaN", "when p = [0, 0, 0, 0]", field="compute:")
+
+
+# ---------------------------------------------------------------- warning + made-up value
+
+def test_warning_naming_a_shown_value_fails():
+    s = golden("entropy")  # H is undefined but still reported as 0
+    s["compute"] = s["compute"].replace("if (raw > 0) values.H = H;", "values.H = raw > 0 ? H : 0;")
+    expect_failure(run_all(s), "compute: values.H is shown as a number while compute reports the warning",
+                   "Leave H out of values", "tests[7]")
+
+
+def test_warning_admitting_a_substitute_fails():
+    s = golden("entropy")  # falls back to a uniform distribution and says so
+    s["compute"] = (s["compute"]
+                    .replace("raw > 0 ? x / raw : 0", "raw > 0 ? x / raw : 1 / w.length")
+                    .replace("if (raw > 0) values.H = H;", "values.H = H;")
+                    .replace("'All weights are zero, so there is no probability distribution and H is undefined. "
+                             "Enter at least one positive weight.'",
+                             "'All weights are zero, so a uniform distribution is used instead.'"))
+    expect_failure(run_all(s), "says a substitute is used", "H, H_max, sum_p")
+
+
+def test_real_values_under_a_warning_are_notes():
+    r = check_report(golden("entropy"))  # sum_p = 0 next to "H is undefined" is a real value
+    assert r["ok"] and any("values.sum_p = 0 is shown while compute warns" in n for n in r["notes"]), r["notes"]
+
+
+# ---------------------------------------------------------------- notes and lint never block
+
+def test_unused_outputs_are_a_note():
+    r = check_report(golden("entropy"))
+    assert r["stats"]["unused_outputs"] == ["values.raw_sum"], r["stats"]["unused_outputs"]
+    s = golden("conv1d")  # a key read only inside draw() counts as read
+    s["compute"] = s["compute"].replace("var values = {", "var values = { extra_k: k,")
+    assert "values.extra_k" in check_report(s)["stats"]["unused_outputs"]
+    s["visuals"][1]["draw"] = s["visuals"][1]["draw"].replace("var k = w.length,", "var kk = out.values.extra_k; var k = w.length,")
+    assert "values.extra_k" not in check_report(s)["stats"]["unused_outputs"]
+
+
+def test_lint_and_notes_only_in_check_report():
+    s = golden("entropy")
+    s["intro"]["why"] = "weights p_(i) matter"
+    assert run_all(copy.deepcopy(s)) == []
+    r = check_report(s)
+    assert r["ok"] and any("ASCII math" in w for w in r["lint"]) and r["notes"]
+
+
 # ---------------------------------------------------------------- controls
 
 def test_dead_controls():
