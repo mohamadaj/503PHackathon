@@ -64,9 +64,11 @@ def run_all(spec):
         if not ENGINE_OK:
             _log("JS engine not available (pip install quickjs); only structural checks ran")
             return []
+        # Each check runs in its own guard (see _JSChecks.guard); only a crash while setting up
+        # (validation or building the JS harness) can end up here.
         return _JSChecks(spec).run()["failures"]
     except Exception as e:  # noqa: BLE001  (A's request: never raise, never block on our own bugs)
-        _log(f"internal error, returning no failures: {type(e).__name__}: {e}")
+        _log(f"internal error during setup, no JS checks ran: {type(e).__name__}: {e}")
         return []
 
 
@@ -78,17 +80,20 @@ def check_report(spec):
         lint = spec_schema.lint(spec)
         errors = spec_schema.validate(spec)
         if errors:
-            r = {"ok": False, "failures": errors, "notes": ["JS checks skipped: fix validation errors first"], "stats": {}}
+            r = {"ok": False, "failures": errors, "notes": ["JS checks skipped: fix validation errors first"],
+                 "stats": {"internal_errors": []}}
         elif not ENGINE_OK:
-            r = {"ok": True, "failures": [], "notes": ["JS engine not available; only structural checks ran"], "stats": {}}
+            r = {"ok": True, "failures": [], "notes": ["JS engine not available; only structural checks ran"],
+                 "stats": {"internal_errors": []}}
         else:
             r = _JSChecks(spec).run()
         r["lint"] = lint
         return r
     except Exception as e:  # noqa: BLE001
-        _log(f"internal error: {type(e).__name__}: {e}")
-        return {"ok": True, "failures": [], "notes": [f"checks.py internal error: {type(e).__name__}: {e}"],
-                "lint": [], "stats": {}}
+        msg = f"setup: {type(e).__name__}: {e}"
+        _log(f"internal error during setup, no JS checks ran: {msg}")
+        return {"ok": True, "failures": [], "notes": [f"checks.py internal error, no JS checks ran: {msg}"],
+                "lint": [], "stats": {"internal_errors": [msg]}}
 
 
 def verify_quotes(spec, excerpt):
@@ -397,6 +402,7 @@ class _JSChecks:
         self.spec = spec
         self.groups = {}  # failure text -> [where it happened]; one line per distinct problem
         self.notes = []
+        self.internal = []  # crashes inside checks.py itself (see guard)
         self.t0 = time.perf_counter()
         self.timeouts = 0
         self.stopped = False
@@ -455,7 +461,7 @@ class _JSChecks:
             self.fail(f"compute: returned non-finite numbers ({', '.join(r['bad'][:3])}) || If a quantity is "
                       f"undefined for these inputs, leave it out of values and set 'warning'", label)
         if (r.get("warning") or "").strip():
-            self.warning_with_numbers(r, label, expect_keys, expect_paths)
+            self.guard(f"warning check {label}", self.warning_with_numbers, r, label, expect_keys, expect_paths)
         return r
 
     def warning_with_numbers(self, r, label, expect_keys, expect_paths):
@@ -519,21 +525,62 @@ class _JSChecks:
             self.fail(f"{where}.expect[{j}]: failed: {_short(r['text'], 160)}{hint} ({_short(name, 70)})")
 
     # -- the run
+    def guard(self, name, fn, *args, **kwargs):
+        """Run one check. If checks.py itself crashes there, record it and carry on with the others,
+        so a bug in one check (or a spec that trips one) never silently skips all checks."""
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            msg = f"{name}: {type(e).__name__}: {e}"
+            self.internal.append(msg)
+            _log(f"internal error in check {msg}; that check was skipped, the others still ran")
+            return None
+
+    # -- the run: every check and every state in its own guard
     def run(self):
+        if not self.guard("compile", self.check_compiles):
+            return self.report()
+        # 1. defaults: must work, be finite, deterministic, and provide every path the page reads
+        base = self.guard("defaults", self.compute, None, "on the default inputs", "defaults")
+        if base is None:
+            return self.report()  # nothing else is meaningful
+        self.guard("determinism", self.check_determinism, base)
+        self.guard("paths", self.check_paths)
+        self.guard("unused outputs", self.note_unused_outputs, base["out"])
+        self.guard("draw on defaults", self.draw_all, "on the default inputs")
+        # 2. tests, explorations, presets: each at its own state
+        for group in ("tests", "explorations", "presets"):
+            for i, item in enumerate(self.spec.get(group) or []):
+                if not self.budget_left():
+                    break
+                self.guard(f"{group}[{i}]", self.check_item, group, i, item)
+        # 3. fuzz one control at a time, and find controls that change nothing
+        outputs = {}
+        for c in self.spec.get("controls") or []:
+            outputs[c["id"]] = {base["out"]}
+            for value in self.guard(f"fuzz values for {c['id']}", _fuzz_values, c) or []:
+                if not self.budget_left():
+                    break
+                self.guard(f"fuzz {c['id']}", self.fuzz_one, c, value, outputs)
+        if not self.stopped:
+            self.guard("dead controls", self.dead_controls, outputs)
+        return self.report()
+
+    def check_compiles(self):
         info, err = self.js.call("__info")
         if err or info.get("compute_error"):
             self.fail(f"compute: could not be compiled: {err or info['compute_error']}")
-            return self.report()
+            return False
+        return True
 
-        # 1. defaults: must work, be finite, deterministic, and provide every path the page reads
-        base = self.compute(None, "on the default inputs", "defaults")
-        if base is None:
-            return self.report()  # nothing else is meaningful
+    def check_determinism(self, base):
         again = self.compute(None, "on the default inputs (second run)", "defaults")
         if again is not None and again["out"] != base["out"]:
             self.fail("compute: is not deterministic: two runs on the default inputs gave different results "
                       "(no randomness, time, or state kept between calls)")
-        self.js.call("__compute", None)  # re-select the default state for the path checks
+
+    def check_paths(self):
+        self.js.call("__compute", None)  # select the default state
         kinds = _path_kinds(self.spec)
         refs = [{"where": w, "path": p, "kind": kinds.get(w, "any")}
                 for w, p in spec_schema.referenced_paths(self.spec)
@@ -545,41 +592,26 @@ class _JSChecks:
                 self.fail(f"{pr['where']}: path {pr['path']} not found in {where}; available: {pr['available']}")
             else:
                 self.fail(f"{pr['where']}: {pr['path']} is {_short(pr['got'], 80)}, but this needs {_KIND_TEXT[pr['kind']]}")
-        self.note_unused_outputs(base["out"])
-        self.draw_all("on the default inputs")
 
-        # 2. tests, explorations, presets: each at its own state
-        for group in ("tests", "explorations", "presets"):
-            for i, item in enumerate(self.spec.get(group) or []):
-                if not self.budget_left():
-                    break
-                label = f"for the state of {group}[{i}]"
-                paths = [e["source"] for e in item.get("expect") or []
-                         if isinstance(e, dict) and isinstance(e.get("source"), str) and not e["source"].startswith("state.")]
-                keys = {p.split(".")[1] for p in paths if p.startswith("values.")}
-                r = self.compute(item.get("state") or {}, label, group, expect_keys=keys, expect_paths=paths)
-                if r is None:
-                    continue
-                if group != "presets":
-                    name = item.get("name") or item.get("title") or ""
-                    self.expects(f"{group}[{i}]", item.get("expect") or [], f"{group[:-1]} '{name}'")
-                self.draw_all(label)
+    def check_item(self, group, i, item):
+        label = f"for the state of {group}[{i}]"
+        paths = [e["source"] for e in item.get("expect") or []
+                 if isinstance(e, dict) and isinstance(e.get("source"), str) and not e["source"].startswith("state.")]
+        keys = {p.split(".")[1] for p in paths if p.startswith("values.")}
+        r = self.compute(item.get("state") or {}, label, group, expect_keys=keys, expect_paths=paths)
+        if r is None:
+            return
+        if group != "presets":
+            name = item.get("name") or item.get("title") or ""
+            self.expects(f"{group}[{i}]", item.get("expect") or [], f"{group[:-1]} '{name}'")
+        self.draw_all(label)
 
-        # 3. fuzz one control at a time, and find controls that change nothing
-        outputs = {}
-        for c in self.spec.get("controls") or []:
-            outputs[c["id"]] = {base["out"]}
-            for value in _fuzz_values(c):
-                if not self.budget_left():
-                    break
-                label = f"when {c['id']} = {_short(json.dumps(value), 60)} (others at defaults)"
-                r = self.compute({c["id"]: value}, label, "fuzz")
-                if r is not None:
-                    outputs[c["id"]].add(r["out"])
-                    self.draw_all(label)
-        if not self.stopped:
-            self.dead_controls(outputs)
-        return self.report()
+    def fuzz_one(self, c, value, outputs):
+        label = f"when {c['id']} = {_short(json.dumps(value), 60)} (others at defaults)"
+        r = self.compute({c["id"]: value}, label, "fuzz")
+        if r is not None:
+            outputs[c["id"]].add(r["out"])
+            self.draw_all(label)
 
     def note_unused_outputs(self, out_json):
         """A note (never a failure) for compute output keys that no visual, expect or draw() reads."""
@@ -612,10 +644,12 @@ class _JSChecks:
         self.stats["timeouts"] = self.timeouts
         self.stats["seconds"] = round(time.perf_counter() - self.t0, 3)
         self.stats["engine"] = _engine_version()
+        self.stats["internal_errors"] = list(self.internal)
+        notes = self.notes + [f"checks.py internal error, this check was skipped: {x}" for x in self.internal]
         failures = self.failures
         if len(failures) > MAX_FAILURES:
             failures = failures[:MAX_FAILURES] + [f"... and {len(failures) - MAX_FAILURES} more failure(s); fix the ones above first"]
-        return {"ok": not failures, "failures": failures, "notes": self.notes, "stats": self.stats}
+        return {"ok": not failures, "failures": failures, "notes": notes, "stats": self.stats}
 
 
 _KIND_TEXT = {"array": "an array of numbers", "matrix": "a non-empty 2-D array (list of rows)",
