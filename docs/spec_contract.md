@@ -84,10 +84,21 @@ Every visual has `type`, `title`, optional `caption` (rich: what to look at).
 |---|---|
 | `readouts` | `items: [{source, label, unit?, digits?}]` – big live numbers |
 | `bar` | `series: [{source, label}]`, `x_labels?`, `x_label`, `y_label`, `y_min?`, `y_max?`, `digits?` |
-| `line` | `x_source`, `series: [{source, label}]`, `x_label`, `y_label`, `y_min?`, `y_max?`, `marker?: {x, y?, label?}` (paths or numbers; no `y` → vertical line), `points?` |
+| `line` | `x_source?` (shared x), `series: [{source, label, x_source?, style?}]`, `x_label`, `y_label`, `x_min? x_max? y_min? y_max?`, `y_log?`, `markers?: [{x?, y?, label?}]` – see below |
+| `scatter` | same fields as `line`; series default to `style: "points"` |
 | `heatmap` | `source`, `row_labels?`, `col_labels?`, `row_title?`, `col_title?`, `digits?`, `domain?: [lo, hi]`, `row_sums?` (bool) |
 | `table` | `source` (→ `{cols, rows}`), `digits?` |
 | `custom` | `height` (px in a 600-wide viewBox), `draw`: JS function expression `function draw(svg, state, out, h) {...}` – see below |
+
+**line / scatter details**
+* Each series may have its own `x_source` (e.g. a curve on a fine grid plus iterates on top of it).
+  Without any `x_source`, x is the index 0, 1, 2, …
+* `style`: `line` (default) · `points` · `line+points` · `stem` (lollipops from 0, e.g. samples) · `dashed` · `step`.
+* Axis bounds may be numbers **or paths** (`"y_max": "values.y_top"`). Fixed bounds clip: points
+  outside are not drawn and the chart says how many were clipped – use this to show divergence honestly.
+* `y_log: true` → log₁₀ y axis (non-positive values are skipped). Good for errors/losses over iterations.
+* `markers`: `{x}` → vertical line, `{y}` → horizontal line, `{x, y}` → labelled point. Values may be
+  paths. A marker outside fixed bounds is reported as "off-scale", never drawn at a clamped position.
 
 `custom` helper `h`: `h.el(tag, attrs, parent)` (SVG element), `h.text(x, y, str, attrs, parent)`,
 `h.scale(d0, d1, r0, r1)` (linear), `h.fmt(v, digits)`, `h.color(i)`, `h.W` (600), `h.H`.

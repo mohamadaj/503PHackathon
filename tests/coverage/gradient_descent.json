@@ -1,0 +1,268 @@
+{
+  "title": "Gradient descent and the learning rate",
+  "subtitle": "Watch x<sub>k+1</sub> = x<sub>k</sub> − η f′(x<sub>k</sub>) converge, oscillate or blow up on a quadratic.",
+  "audience": "Engineering undergraduate",
+  "intro": {
+    "idea": "Gradient descent minimizes a function by repeatedly stepping against its slope: x<sub>k+1</sub> = x<sub>k</sub> − η f′(x<sub>k</sub>). On the quadratic f(x) = ½ a x<sup>2</sup> the slope is a x, so every step multiplies x by the same factor r = 1 − η a.",
+    "why": "The learning rate η is the most important knob when training models. Too small wastes time, too large makes training diverge. The quadratic shows exactly where the boundary is: |1 − η a| < 1, i.e. 0 < η < 2/a.",
+    "symbols": [
+      {
+        "symbol": "η",
+        "meaning": "learning rate (step size)",
+        "unit": "> 0"
+      },
+      {
+        "symbol": "a",
+        "meaning": "curvature f″(x) of the quadratic",
+        "unit": "> 0"
+      },
+      {
+        "symbol": "r = 1 − η a",
+        "meaning": "factor multiplying x at each step",
+        "unit": "converges if |r| < 1"
+      },
+      {
+        "symbol": "x<sub>k</sub>",
+        "meaning": "position after k steps",
+        "unit": "x<sub>k</sub> = r<sup>k</sup> x<sub>0</sub>"
+      }
+    ]
+  },
+  "controls": [
+    {
+      "id": "eta",
+      "type": "slider",
+      "label": "Learning rate η",
+      "min": 0.01,
+      "max": 1.5,
+      "step": 0.01,
+      "default": 0.3
+    },
+    {
+      "id": "a",
+      "type": "slider",
+      "label": "Curvature a",
+      "min": 0.5,
+      "max": 3,
+      "step": 0.1,
+      "default": 1
+    },
+    {
+      "id": "x0",
+      "type": "number",
+      "label": "Start x<sub>0</sub>",
+      "min": -4,
+      "max": 4,
+      "step": 0.5,
+      "default": 3
+    },
+    {
+      "id": "steps",
+      "type": "slider",
+      "label": "Steps K",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "default": 10
+    }
+  ],
+  "presets": [
+    {
+      "label": "Too small",
+      "state": {
+        "eta": 0.05,
+        "a": 1
+      }
+    },
+    {
+      "label": "Optimal η = 1/a",
+      "state": {
+        "eta": 1,
+        "a": 1
+      }
+    },
+    {
+      "label": "Oscillating",
+      "state": {
+        "eta": 1.7,
+        "a": 1
+      }
+    },
+    {
+      "label": "Diverging",
+      "state": {
+        "eta": 1.2,
+        "a": 2
+      }
+    }
+  ],
+  "compute": "function compute(state) {\n  var a = state.a, eta = state.eta, x0 = state.x0, K = Math.round(state.steps);\n  function f(x) { return 0.5 * a * x * x; }\n  var gx = [], gy = [];\n  for (var i = 0; i <= 80; i++) { var x = -4 + 8 * i / 80; gx.push(x); gy.push(f(x)); }\n  var xs = [x0], fs = [f(x0)], ks = [0];\n  for (var k = 1; k <= K; k++) { var xn = xs[k - 1] - eta * a * xs[k - 1]; xs.push(xn); fs.push(f(xn)); ks.push(k); }\n  var r = 1 - eta * a;\n  return {\n    values: { r: r, ratio_abs: Math.abs(r), eta_crit: 2 / a, eta_opt: 1 / a, x_final: xs[K], f_final: fs[K], y_top: f(4) * 1.05, loss_top: Math.max(f(x0), 1e-9) * 1.3 },\n    series: { gx: gx, gy: gy, xs: xs, fs: fs, ks: ks }\n  };\n}",
+  "visuals": [
+    {
+      "type": "readouts",
+      "title": "Step factor",
+      "items": [
+        {
+          "source": "values.r",
+          "label": "r = 1 − η a",
+          "digits": 3
+        },
+        {
+          "source": "values.eta_crit",
+          "label": "Divergence threshold 2/a",
+          "digits": 3
+        },
+        {
+          "source": "values.f_final",
+          "label": "f(x<sub>K</sub>)",
+          "digits": 4
+        }
+      ]
+    },
+    {
+      "type": "line",
+      "title": "Path on the loss curve",
+      "caption": "Orange dots are the iterates x<sub>0</sub>, x<sub>1</sub>, …; the line joins them in order.",
+      "series": [
+        {
+          "source": "series.gy",
+          "x_source": "series.gx",
+          "label": "f(x) = ½ a x²"
+        },
+        {
+          "source": "series.fs",
+          "x_source": "series.xs",
+          "label": "iterates",
+          "style": "line+points"
+        }
+      ],
+      "x_label": "x",
+      "y_label": "f(x)",
+      "x_min": -4,
+      "x_max": 4,
+      "y_min": 0,
+      "y_max": "values.y_top",
+      "markers": [
+        {
+          "x": "values.x_final",
+          "y": "values.f_final",
+          "label": "x_K"
+        }
+      ]
+    },
+    {
+      "type": "line",
+      "title": "Loss per step",
+      "series": [
+        {
+          "source": "series.fs",
+          "x_source": "series.ks",
+          "label": "f(x_k)",
+          "style": "line+points"
+        }
+      ],
+      "x_label": "step k",
+      "y_label": "f(x<sub>k</sub>)",
+      "y_log": true
+    }
+  ],
+  "explorations": [
+    {
+      "title": "Small steps converge slowly",
+      "kind": "guided",
+      "state": {
+        "eta": 0.1,
+        "a": 1,
+        "x0": 3,
+        "steps": 10
+      },
+      "change": "Press Try it, then raise η towards 1.",
+      "observe": "With η = 0.1, x shrinks by 10% per step and is still ≈ 1.046 after 10 steps. At η = 1/a = 1 it reaches 0 in one step.",
+      "why": "x<sub>k</sub> = (1 − η a)<sup>k</sup> x<sub>0</sub>; the closer r is to 0 the faster the error shrinks.",
+      "expect": [
+        {
+          "source": "values.x_final",
+          "equals": 1.04603,
+          "tol": 0.0001
+        }
+      ]
+    },
+    {
+      "title": "Too large a step diverges",
+      "kind": "limitation",
+      "state": {
+        "eta": 1.05,
+        "a": 2,
+        "x0": 1,
+        "steps": 10
+      },
+      "change": "Press Try it (η a = 2.1).",
+      "observe": "The iterates jump from side to side and grow; |r| = 1.1 > 1.",
+      "why": "Each step overshoots the minimum by more than it started. The clean threshold 2/a holds for a quadratic; real losses have varying curvature, so it is only a local guide.",
+      "expect": [
+        {
+          "source": "values.ratio_abs",
+          "equals": 1.1,
+          "tol": 1e-09
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "One-dimensional quadratic only.",
+    "No noise: this is full-batch gradient descent, not SGD."
+  ],
+  "tests": [
+    {
+      "name": "One step with η = 0.5, a = 1 halves x",
+      "state": {
+        "eta": 0.5,
+        "a": 1,
+        "x0": 2,
+        "steps": 1
+      },
+      "expect": [
+        {
+          "source": "values.x_final",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "name": "η = 1/a reaches the minimum in one step",
+      "state": {
+        "eta": 0.5,
+        "a": 2,
+        "x0": 3,
+        "steps": 1
+      },
+      "expect": [
+        {
+          "source": "values.x_final",
+          "equals": 0
+        }
+      ]
+    },
+    {
+      "name": "η a > 2 diverges",
+      "state": {
+        "eta": 1.2,
+        "a": 2
+      },
+      "expect": [
+        {
+          "source": "values.ratio_abs",
+          "min": 1.0001
+        }
+      ]
+    }
+  ],
+  "source": {
+    "paper": "COVERAGE TEST SPEC (not a showcase)",
+    "section": "—",
+    "supported": [],
+    "simplifications": [
+      "Template coverage test: per-series x, fixed axes with clipping, markers."
+    ]
+  }
+}

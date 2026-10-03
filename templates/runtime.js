@@ -451,6 +451,7 @@
 
   // ---------- visuals ----------
   var renderers = [];
+  var clipSeq = 0;
   function buildVisuals() {
     var host = document.getElementById('visuals');
     (spec.visuals || []).forEach(function (v) {
@@ -494,13 +495,25 @@
     if (lo < 0 && (!isNum(ymin) || lo < ymin)) lo -= (hi - lo) * 0.06;
     return [lo, hi];
   }
-  function axesY(svg, m, h, ylo, yhi, yTitle) {
+  function axesY(svg, m, h, ylo, yhi, yTitle, log) {
     var y = linScale(ylo, yhi, h - m.b, m.t);
     var ticks = niceTicks(ylo, yhi, 5);
+    if (log) {
+      var stepD = Math.max(1, Math.ceil((yhi - ylo) / 6)), dec = [];
+      for (var e = Math.ceil(ylo); e <= Math.floor(yhi); e += stepD) dec.push(e);
+      if (dec.length >= 2) ticks = dec;
+    }
+    function lab(t) {
+      if (!log) return tickFmt(t, ticks);
+      var r = Math.round(t);
+      if (Math.abs(t - r) > 1e-9) return fmt(Math.pow(10, t), 2);
+      return Math.abs(r) >= 4 ? '1e' + r : fmt(Math.pow(10, r), Math.max(0, -r));
+    }
     ticks.forEach(function (t) {
       sv('line', { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), class: 'grid' }, svg);
-      svText(m.l - 6, y(t) + 4, tickFmt(t, ticks), { class: 'tick', 'text-anchor': 'end' }, svg);
+      svText(m.l - 6, y(t) + 4, lab(t), { class: 'tick', 'text-anchor': 'end' }, svg);
     });
+    if (log && yTitle) yTitle = yTitle + ' (log scale)';
     if (yTitle) svText(14, (m.t + h - m.b) / 2, String(yTitle), { class: 'axis-title', 'text-anchor': 'middle', transform: 'rotate(-90 14 ' + ((m.t + h - m.b) / 2) + ')' }, svg);
     return y;
   }
@@ -563,53 +576,112 @@
       if (v.x_label) svText((m.l + W - m.r) / 2, h - 10, String(v.x_label), { class: 'axis-title', 'text-anchor': 'middle' }, svg);
     },
 
+    // Series: {source, label, x_source?, style?: line|points|line+points|stem|dashed|step}.
+    // Fixed axes (x_min/x_max/y_min/y_max) clip instead of rescaling, so divergence stays visible.
     line: function (v, body, out, st) {
-      var xs = numArr(resolve(v.x_source, out, st), v.x_source);
-      var ser = (v.series || []).map(function (s) { return { label: String(s.label || s.source), data: numArr(resolve(s.source, out, st), s.source) }; });
+      var defStyle = v.type === 'scatter' ? 'points' : (v.points ? 'line+points' : 'line');
+      v = Object.assign({}, v);
+      ['x_min', 'x_max', 'y_min', 'y_max'].forEach(function (k) { if (typeof v[k] === 'string') v[k] = Number(resolve(v[k], out, st)); });
+      var sharedX = v.x_source != null ? resolve(v.x_source, out, st) : null;
+      var ser = (v.series || []).map(function (s) {
+        var xsrc = s.x_source != null ? s.x_source : v.x_source;
+        var xs = s.x_source != null ? resolve(s.x_source, out, st) : sharedX;
+        var data = numArr(resolve(s.source, out, st), s.source);
+        xs = xs == null ? data.map(function (_, i) { return i; }) : numArr(xs, xsrc);
+        return { label: svgLabel(s.label || s.source), xs: xs, data: data, style: s.style || defStyle };
+      });
       if (!ser.length) throw new Error('line chart has no series');
+      var markers = asArr(v.markers).concat(v.marker ? [v.marker] : []).filter(isObj).map(function (mk) {
+        return { x: mk.x != null ? Number(resolve(mk.x, out, st)) : NaN, y: mk.y != null ? Number(resolve(mk.y, out, st)) : NaN, label: mk.label };
+      });
+      var LOG = !!v.y_log;
+      if (LOG) {
+        var L = function (q) { return isNum(q) && q > 0 ? Math.log10(q) : NaN; };
+        ser.forEach(function (s) { s.raw = s.data; s.data = s.data.map(L); });
+        markers.forEach(function (mk) { mk.rawY = mk.y; mk.y = L(mk.y); });
+        ['y_min', 'y_max'].forEach(function (k) { if (isNum(v[k])) v[k] = v[k] > 0 ? Math.log10(v[k]) : undefined; });
+      }
       var h = 300, m = { l: 58, r: 16, t: ser.length > 1 ? 28 : 14, b: 52 };
       var svg = newSvg(body, h);
       legend(svg, ser.map(function (s) { return s.label; }), m);
-      var fx = xs.filter(isNum);
-      if (!fx.length) throw new Error('x values are not numbers');
-      var xlo = Math.min.apply(null, fx), xhi = Math.max.apply(null, fx);
-      if (xhi === xlo) { xlo -= 0.5; xhi += 0.5; }
-      var allY = [].concat.apply([], ser.map(function (s) { return s.data; })).filter(isNum);
-      var lo = isNum(v.y_min) ? Math.min(v.y_min, Math.min.apply(null, allY.concat([v.y_min]))) : Math.min.apply(null, allY.length ? allY : [0]);
-      var hi = isNum(v.y_max) ? Math.max(v.y_max, Math.max.apply(null, allY.concat([v.y_max]))) : Math.max.apply(null, allY.length ? allY : [1]);
-      if (hi === lo) { hi += 0.5; lo -= 0.5; }
-      if (!isNum(v.y_min) && !isNum(v.y_max)) { var pad = (hi - lo) * 0.06; hi += pad; if (lo !== 0) lo -= pad; }
-      var y = axesY(svg, m, h, lo, hi, v.y_label);
+
+      var allX = [], allY = [];
+      ser.forEach(function (s) {
+        for (var i = 0; i < Math.min(s.xs.length, s.data.length); i++) if (isNum(s.xs[i]) && isNum(s.data[i])) { allX.push(s.xs[i]); allY.push(s.data[i]); }
+      });
+      markers.forEach(function (mk) { if (isNum(mk.x)) allX.push(mk.x); if (isNum(mk.y)) allY.push(mk.y); });
+      if (!allX.length && !isNum(v.x_min)) { body.textContent = ''; el('p', { class: 'caption' }, body, 'Nothing to plot for these inputs.'); return; }
+      var xlo = isNum(v.x_min) ? v.x_min : Math.min.apply(null, allX), xhi = isNum(v.x_max) ? v.x_max : Math.max.apply(null, allX);
+      if (!(xhi > xlo)) { xlo -= 0.5; xhi += 0.5; }
+      var lo = isNum(v.y_min) ? v.y_min : Math.min.apply(null, allY.length ? allY : [0]);
+      var hi = isNum(v.y_max) ? v.y_max : Math.max.apply(null, allY.length ? allY : [1]);
+      if (!(hi > lo)) { hi = lo + 0.5; lo -= 0.5; }
+      var pad = (hi - lo) * 0.06;
+      if (!isNum(v.y_max)) hi += pad;
+      if (!isNum(v.y_min) && lo !== 0) lo -= pad;
+
+      var y = axesY(svg, m, h, lo, hi, v.y_label, LOG);
       var x = linScale(xlo, xhi, m.l, W - m.r);
       var xt = niceTicks(xlo, xhi, 6);
       xt.forEach(function (t) {
         sv('line', { x1: x(t), x2: x(t), y1: m.t, y2: h - m.b, class: 'grid' }, svg);
         svText(x(t), h - m.b + 16, tickFmt(t, xt), { class: 'tick', 'text-anchor': 'middle' }, svg);
       });
-      if (lo < 0 && hi > 0) sv('line', { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), class: 'zero' }, svg);
+      if (!LOG && lo < 0 && hi > 0) sv('line', { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), class: 'zero' }, svg);
       sv('line', { x1: m.l, x2: m.l, y1: m.t, y2: h - m.b, class: 'axis' }, svg);
       sv('line', { x1: m.l, x2: W - m.r, y1: h - m.b, y2: h - m.b, class: 'axis' }, svg);
+
+      var clipId = 'clip' + (++clipSeq);
+      sv('rect', { x: m.l, y: m.t - 4, width: W - m.l - m.r, height: h - m.t - m.b + 8 }, sv('clipPath', { id: clipId }, sv('defs', null, svg)));
+      var plot = sv('g', { 'clip-path': 'url(#' + clipId + ')' }, svg);
+      var clipped = 0;
       ser.forEach(function (s, k) {
-        var d = '', pen = false;
-        for (var i = 0; i < Math.min(xs.length, s.data.length); i++) {
-          if (isNum(xs[i]) && isNum(s.data[i])) { d += (pen ? 'L' : 'M') + x(xs[i]).toFixed(1) + ' ' + y(clamp(s.data[i], lo, hi)).toFixed(1); pen = true; }
-          else pen = false;
+        var col = seriesColor(k), n = Math.min(s.xs.length, s.data.length), d = '', pen = false, px = null, py = null;
+        var drawLine = /line|dashed|step/.test(s.style), dots = /points/.test(s.style) || s.style === 'stem';
+        for (var i = 0; i < n; i++) {
+          var xi = s.xs[i], yi = s.data[i];
+          if (!(isNum(xi) && isNum(yi))) { pen = false; continue; }
+          if (yi < lo || yi > hi || xi < xlo || xi > xhi) clipped++;
+          var X = x(xi), Y = y(yi);
+          if (drawLine) {
+            if (s.style === 'step' && pen) d += 'L' + X.toFixed(1) + ' ' + py.toFixed(1);
+            d += (pen ? 'L' : 'M') + X.toFixed(1) + ' ' + Y.toFixed(1);
+            pen = true; px = X; py = Y;
+          }
+          if (s.style === 'stem') sv('line', { x1: X, x2: X, y1: y(LOG ? lo : clamp(0, lo, hi)), y2: Y, stroke: col, 'stroke-width': 1.6 }, plot);
+          if (dots) sv('circle', { cx: X, cy: Y, r: s.style === 'points' ? 4 : 3.2, fill: col, stroke: 'var(--panel)', 'stroke-width': 1 }, plot)
+            .appendChild(document.createElementNS(SVGNS, 'title')).textContent = s.label + ': (' + fmt(xi, 3) + ', ' + fmt(s.raw ? s.raw[i] : yi, 3) + ')';
         }
-        sv('path', { d: d, fill: 'none', stroke: seriesColor(k), 'stroke-width': 2.2, 'stroke-linejoin': 'round' }, svg);
-        if (v.points) for (var j = 0; j < Math.min(xs.length, s.data.length); j++)
-          if (isNum(xs[j]) && isNum(s.data[j])) sv('circle', { cx: x(xs[j]), cy: y(clamp(s.data[j], lo, hi)), r: 3, fill: seriesColor(k) }, svg);
+        if (drawLine && d) sv('path', { d: d, fill: 'none', stroke: col, 'stroke-width': 2.2, 'stroke-linejoin': 'round', 'stroke-dasharray': s.style === 'dashed' ? '6 4' : null }, plot);
       });
-      if (v.marker) {
-        var mx = Number(resolve(v.marker.x, out, st)), my = v.marker.y != null ? Number(resolve(v.marker.y, out, st)) : null;
-        if (isNum(mx)) {
-          var px = x(clamp(mx, xlo, xhi));
-          sv('line', { x1: px, x2: px, y1: m.t, y2: h - m.b, stroke: 'var(--bad)', 'stroke-dasharray': '4 3', 'stroke-width': 1.4 }, svg);
-          var lab = (v.marker.label ? String(v.marker.label) + ': ' : '') + fmt(mx, 3) + (isNum(my) ? ', ' + fmt(my, 3) : '');
-          if (isNum(my)) sv('circle', { cx: px, cy: y(clamp(my, lo, hi)), r: 5, fill: 'var(--bad)', stroke: 'var(--panel)', 'stroke-width': 2 }, svg);
-          svText(Math.min(px + 6, W - m.r - 4), m.t + 12, lab, { class: 'vlabel', 'text-anchor': px > W * 0.7 ? 'end' : 'start', fill: 'var(--bad)' }, svg)
-            .setAttribute('x', px > W * 0.7 ? px - 6 : px + 6);
+      markers.forEach(function (mk) {
+        var hasX = isNum(mk.x), hasY = isNum(mk.y);
+        if (!hasX && !hasY) return;
+        var parts = [];
+        if (hasX) parts.push(fmt(mk.x, 3));
+        if (hasY) parts.push(fmt(LOG ? mk.rawY : mk.y, 3));
+        var lab = (mk.label ? svgLabel(mk.label) + ': ' : '') + parts.join(', ');
+        var offX = hasX && (mk.x < xlo || mk.x > xhi), offY = hasY && (mk.y < lo || mk.y > hi);
+        if (offX || offY) {
+          // Never draw a marker at a clamped position: say where it is instead.
+          var dir = (offX ? (mk.x > xhi ? '→' : '←') : '') + (offY ? (mk.y > hi ? '↑' : '↓') : '');
+          svText(W - m.r - 4, m.t + 12, lab + '  ' + dir + ' off-scale', { class: 'vlabel', 'text-anchor': 'end', style: 'fill:var(--bad)' }, svg);
+        } else if (hasX && !hasY) {
+          var X = x(clamp(mk.x, xlo, xhi));
+          sv('line', { x1: X, x2: X, y1: m.t, y2: h - m.b, stroke: 'var(--bad)', 'stroke-dasharray': '4 3', 'stroke-width': 1.4 }, svg);
+          svText(X > W * 0.7 ? X - 6 : X + 6, m.t + 12, lab, { class: 'vlabel', 'text-anchor': X > W * 0.7 ? 'end' : 'start', style: 'fill:var(--bad)' }, svg);
+        } else if (hasY && !hasX) {
+          var Yh = y(clamp(mk.y, lo, hi));
+          sv('line', { x1: m.l, x2: W - m.r, y1: Yh, y2: Yh, stroke: 'var(--bad)', 'stroke-dasharray': '4 3', 'stroke-width': 1.4 }, svg);
+          svText(W - m.r - 4, Yh - 5, lab, { class: 'vlabel', 'text-anchor': 'end', style: 'fill:var(--bad)' }, svg);
+        } else {
+          var Xp = x(clamp(mk.x, xlo, xhi)), Yp = y(clamp(mk.y, lo, hi));
+          sv('line', { x1: Xp, x2: Xp, y1: Yp, y2: h - m.b, stroke: 'var(--bad)', 'stroke-dasharray': '3 3' }, svg);
+          sv('circle', { cx: Xp, cy: Yp, r: 5.5, fill: 'var(--bad)', stroke: 'var(--panel)', 'stroke-width': 2 }, svg);
+          svText(Xp > W * 0.7 ? Xp - 9 : Xp + 9, Math.max(m.t + 10, Yp - 9), lab, { class: 'vlabel', 'text-anchor': Xp > W * 0.7 ? 'end' : 'start', style: 'fill:var(--bad)' }, svg);
         }
-      }
+      });
+      if (clipped) svText(W - m.r, h - 4, clipped + ' point(s) outside the fixed axes', { class: 'tick', 'text-anchor': 'end' }, svg);
       if (v.x_label) svText((m.l + W - m.r) / 2, h - 10, String(v.x_label), { class: 'axis-title', 'text-anchor': 'middle' }, svg);
     },
 
@@ -686,6 +758,8 @@
       });
     }
   };
+
+  VISUALS.scatter = VISUALS.line;
 
   // Opacity ramp over the panel colour, so it reads in light and dark themes.
   // Positive → blue, negative → orange (diverging around 0).

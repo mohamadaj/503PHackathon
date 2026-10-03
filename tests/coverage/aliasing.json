@@ -1,0 +1,40 @@
+{
+  "title": "Sampling and aliasing",
+  "subtitle": "Sample a sine wave and see when the samples tell a different story.",
+  "audience": "Engineering undergraduate",
+  "intro": {
+    "idea": "A continuous signal is sampled every T = 1/f<sub>s</sub> seconds. If the signal frequency f is above f<sub>s</sub>/2 (the Nyquist frequency), the samples are identical to those of a lower frequency f<sub>a</sub>, its <b>alias</b>.",
+    "why": "Every ADC, audio system and camera must sample fast enough, or filter first, otherwise high frequencies masquerade as low ones and cannot be removed afterwards.",
+    "symbols": [
+      {"symbol": "f", "meaning": "signal frequency", "unit": "Hz"},
+      {"symbol": "f<sub>s</sub>", "meaning": "sampling rate", "unit": "samples/s"},
+      {"symbol": "f<sub>s</sub>/2", "meaning": "Nyquist frequency", "unit": "Hz"},
+      {"symbol": "f<sub>a</sub>", "meaning": "apparent (alias) frequency |f − k f<sub>s</sub>|, nearest k", "unit": "Hz"}
+    ]
+  },
+  "controls": [
+    {"id": "f", "type": "slider", "label": "Signal frequency f (Hz)", "min": 1, "max": 20, "step": 1, "default": 3},
+    {"id": "fs", "type": "slider", "label": "Sampling rate f<sub>s</sub> (Hz)", "min": 2, "max": 40, "step": 1, "default": 10}
+  ],
+  "compute": "function compute(state) {\n  var f = state.f, fs = state.fs, PI2 = 2 * Math.PI;\n  var t = [], y = [];\n  for (var i = 0; i <= 600; i++) { var ti = i / 600; t.push(ti); y.push(Math.sin(PI2 * f * ti)); }\n  var k = Math.round(f / fs), fp = f - k * fs;\n  var ts = [], ys = [], yr = [];\n  for (var n = 0; n <= fs; n++) { var tn = n / fs; ts.push(tn); ys.push(Math.sin(PI2 * f * tn)); }\n  for (var j = 0; j <= 600; j++) yr.push(Math.sin(PI2 * fp * t[j]));\n  return {\n    values: { nyquist: fs / 2, alias: Math.abs(fp), aliased: f > fs / 2 ? 1 : 0, max_sample_err: Math.max.apply(null, ts.map(function (tn, n) { return Math.abs(ys[n] - Math.sin(PI2 * fp * tn)); })) },\n    series: { t: t, y: y, ts: ts, ys: ys, yr: yr, fx: [f, Math.abs(fp)], fy: [1, 1] }\n  };\n}",
+  "visuals": [
+    {"type": "readouts", "title": "Frequencies", "items": [
+      {"source": "values.nyquist", "label": "Nyquist f<sub>s</sub>/2", "unit": "Hz", "digits": 1},
+      {"source": "values.alias", "label": "Apparent frequency f<sub>a</sub>", "unit": "Hz", "digits": 1}]},
+    {"type": "line", "title": "Signal, samples and what the samples look like", "x_min": 0, "x_max": 1, "y_min": -1.2, "y_max": 1.2,
+     "series": [{"source": "series.y", "x_source": "series.t", "label": "true signal"},
+                {"source": "series.ys", "x_source": "series.ts", "label": "samples", "style": "stem"},
+                {"source": "series.yr", "x_source": "series.t", "label": "alias through samples", "style": "dashed"}],
+     "x_label": "time t (s)", "y_label": "amplitude"},
+    {"type": "scatter", "title": "Frequency axis", "series": [{"source": "series.fy", "x_source": "series.fx", "label": "f and f_a", "style": "stem"}],
+     "x_min": 0, "x_max": 20, "y_min": 0, "y_max": 1.3, "markers": [{"x": "values.nyquist", "label": "Nyquist"}], "x_label": "frequency (Hz)", "y_label": "present"}
+  ],
+  "explorations": [
+    {"title": "Below Nyquist", "kind": "guided", "state": {"f": 3, "fs": 10}, "change": "Try it.", "observe": "f_a = f = 3 Hz; dashed curve coincides with the signal.", "why": "f < f_s/2.", "expect": [{"source": "values.alias", "equals": 3}]},
+    {"title": "Above Nyquist", "kind": "limitation", "state": {"f": 9, "fs": 10}, "change": "Try it.", "observe": "Samples trace a 1 Hz wave.", "why": "9 = 10 − 1.", "expect": [{"source": "values.alias", "equals": 1}, {"source": "values.max_sample_err", "max": 1e-9}]}
+  ],
+  "limitations": ["Pure sine only."],
+  "tests": [{"name": "alias of 9 Hz at 10 Hz is 1 Hz", "state": {"f": 9, "fs": 10}, "expect": [{"source": "values.alias", "equals": 1}]},
+            {"name": "samples agree with alias", "state": {"f": 13, "fs": 8}, "expect": [{"source": "values.max_sample_err", "max": 1e-9}]}],
+  "source": {"paper": "COVERAGE TEST SPEC (not a showcase)", "supported": [], "simplifications": ["Template coverage test: stems, dashed series, scatter type, vertical marker."]}
+}
